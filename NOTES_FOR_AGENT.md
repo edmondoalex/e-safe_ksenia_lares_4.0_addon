@@ -173,6 +173,10 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
   - File: `app/websocketmanager.py`, `app/main.py`, `config.yaml`
   - Versione: `config.yaml` -> 5.2.23 (diagnostica zones + fix PRT)
 
+- Partitions: mapping zone->partition via PRT migliorato (euristica direct/compact + compatibile con ID partizioni non sequenziali) (v5.2.24).
+  - File: `app/main.py`, `config.yaml`
+  - Versione: `config.yaml` -> 5.2.24 (fix PRT decode for alarm zones)
+
 ## File principali
 - `app/main.py`: MQTT, discovery, cmd handler, republish/cleanup discovery.
 - `app/websocketmanager.py`: WS verso centrale, listener realtime/static, comandi (write cfg).

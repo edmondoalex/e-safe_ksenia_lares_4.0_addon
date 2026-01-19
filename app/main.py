@@ -1061,76 +1061,119 @@ def main():
 
     def _partition_is_disarmed(part_payload: dict) -> bool:
         s = _partition_arm_state(part_payload)
-        return s in ("", "D", "DISARM", "DISINSERITO")
+        return (s == "") or (s.startswith("D")) or (s in ("DISARM", "DISINSERITO"))
 
-    def _zone_prt_mask(zone_payload: dict) -> int:
-        if not isinstance(zone_payload, dict):
-            return 0
-        st = zone_payload.get("static") if isinstance(zone_payload.get("static"), dict) else {}
-        prt = st.get("PRT")
-        if prt is None:
-            return 0
+    def _partition_ids_from_state() -> list[int]:
         try:
-            if isinstance(prt, (list, tuple)):
-                mask = 0
-                for x in prt:
-                    try:
-                        pid = int(str(x).strip())
-                    except Exception:
-                        continue
-                    if pid > 0:
-                        mask |= 1 << (pid - 1)
-                return int(mask)
-            s = str(prt).strip()
-            # Some panels may encode partitions as "1,2" (list) instead of bitmask.
-            if "," in s or " " in s:
-                mask = 0
-                for tok in re.split(r"[,\s]+", s):
-                    tok = str(tok or "").strip()
-                    if not tok:
-                        continue
-                    try:
-                        pid = int(tok)
-                    except Exception:
-                        continue
-                    if pid > 0:
-                        mask |= 1 << (pid - 1)
-                return int(mask)
-            # Some panels send PRT as a hex bitmask without the "0x" prefix (e.g. "40" => 0x40).
-            # Try both decimal and hex and pick the one that decodes to a reasonable number of partitions.
-            max_id = 32
-
-            def _decode_count(mask_int: int) -> int:
-                if mask_int < 0:
-                    return 10_000
-                cnt = 0
-                for pid in range(1, max_id + 1):
-                    if mask_int & (1 << (pid - 1)):
-                        cnt += 1
-                return cnt if cnt > 0 else 10_000
-
-            candidates = []
-            try:
-                candidates.append(int(float(s)))
-            except Exception:
-                pass
-            is_hexish = all(c in "0123456789abcdefABCDEF" for c in s) and len(s) >= 2
-            try:
-                if s.upper().startswith("0X"):
-                    candidates.append(int(s, 16))
-                elif is_hexish:
-                    candidates.append(int(s, 16))
-            except Exception:
-                pass
-            if not candidates:
-                return 0
-            best = min(candidates, key=_decode_count)
-            try:
-                return int(best)
-            except Exception:
-                return 0
+            snap = state.snapshot()
+            entities = snap.get("entities") or []
         except Exception:
-            return 0
+            entities = []
+        out: list[int] = []
+        if not isinstance(entities, list):
+            return out
+        for e in entities:
+            if not isinstance(e, dict):
+                continue
+            if str(e.get("type") or "").lower() != "partitions":
+                continue
+            try:
+                out.append(int(str(e.get("id")).strip()))
+            except Exception:
+                continue
+        return sorted(set([x for x in out if x > 0]))
+
+    def _decode_zone_prt_partition_ids(prt_value, partition_ids: list[int]) -> list[int]:
+        """
+        Decode a zone->partition association from the static PRT field.
+
+        Panels/UI vary:
+        - bitmask where bit position == partition ID (1-based)
+        - bitmask where bit position maps to the *nth enabled partition* (compact)
+        - string lists like "1,2"
+        - hex strings without 0x ("40")
+        """
+        if prt_value is None:
+            return []
+        s = str(prt_value).strip()
+        if not s:
+            return []
+        up = s.upper()
+        if up in ("ALL", "ALLALL"):
+            return list(partition_ids)
+
+        # explicit lists like "1,2"
+        if "," in s or " " in s:
+            out = []
+            for tok in re.split(r"[,\s]+", s):
+                tok = str(tok or "").strip()
+                if not tok:
+                    continue
+                try:
+                    pid = int(tok)
+                except Exception:
+                    continue
+                if pid > 0:
+                    out.append(pid)
+            return sorted(set(out))
+
+        # numeric/hex mask candidates
+        candidates: list[int] = []
+        try:
+            candidates.append(int(float(s)))
+        except Exception:
+            pass
+        is_hexish = all(c in "0123456789abcdefABCDEF" for c in s) and len(s) >= 2
+        try:
+            if up.startswith("0X"):
+                candidates.append(int(s, 16))
+            elif is_hexish:
+                candidates.append(int(s, 16))
+        except Exception:
+            pass
+        if not candidates:
+            return []
+
+        # Decode mask by two strategies and pick best:
+        # - direct: bit i -> partition ID i
+        # - compact: bit i -> partition_ids[i-1]
+        max_bit_direct = max(partition_ids) if partition_ids else 32
+        max_bit_direct = max(max_bit_direct, 32)
+        max_bit_compact = max(len(partition_ids), 1)
+        max_bit_compact = max(max_bit_compact, 32)
+
+        def _decode_bits(mask_int: int, max_bit: int) -> list[int]:
+            out = []
+            for i in range(1, max_bit + 1):
+                if mask_int & (1 << (i - 1)):
+                    out.append(i)
+            return out
+
+        best_ids: list[int] = []
+        best_score = None
+        part_set = set(partition_ids)
+        for m in candidates:
+            if m < 0:
+                continue
+            direct = _decode_bits(m, max_bit_direct)
+            compact_bits = _decode_bits(m, max_bit_compact)
+            compact = []
+            for idx in compact_bits:
+                if 1 <= idx <= len(partition_ids):
+                    compact.append(partition_ids[idx - 1])
+
+            for mode, ids in (("direct", direct), ("compact", compact)):
+                if not ids:
+                    continue
+                # score: prefer ids that exist as partitions, and fewer ids overall.
+                nonexist = sum(1 for x in ids if x not in part_set) if part_set else 0
+                exist = sum(1 for x in ids if x in part_set) if part_set else len(ids)
+                score = (nonexist, -exist, len(ids), 0 if mode == "compact" else 1)
+                if best_score is None or score < best_score:
+                    best_score = score
+                    best_ids = ids
+
+        return sorted(set([x for x in best_ids if x > 0]))
 
     def _zone_is_alarm(zone_payload: dict) -> bool:
         if not isinstance(zone_payload, dict):
@@ -1206,9 +1249,9 @@ def main():
     def _zones_alarm_for_partition(pid: int) -> list[tuple[str, str]]:
         if pid <= 0:
             return []
-        bit = 1 << (pid - 1)
         out: list[tuple[str, str]] = []
         alarm_ids = _system_alarm_zone_ids()
+        partition_ids = _partition_ids_from_state()
         try:
             snap = state.snapshot()
             entities = snap.get("entities") or []
@@ -1237,7 +1280,9 @@ def main():
                 merged = e
             if not isinstance(merged, dict):
                 continue
-            if (_zone_prt_mask(merged) & bit) == 0:
+            st = merged.get("static") if isinstance(merged.get("static"), dict) else {}
+            pids = _decode_zone_prt_partition_ids(st.get("PRT"), partition_ids)
+            if pid not in pids:
                 continue
             # If systems provides ALARM list, trust it; otherwise fallback to per-zone heuristic.
             if (not alarm_ids) and (not _zone_is_alarm(merged)):
@@ -1268,9 +1313,7 @@ def main():
             part = state.get_merged("partitions", str(pid_int))
         except Exception:
             part = None
-        if not isinstance(part, dict):
-            return
-        if _partition_is_disarmed(part):
+        if isinstance(part, dict) and _partition_is_disarmed(part):
             state_str = "Nessuno"
         else:
             state_str = _format_alarm_zones_state(_zones_alarm_for_partition(pid_int))
@@ -2212,12 +2255,13 @@ def main():
                             merged = state.get_merged("zones", zid_s)
                         except Exception:
                             merged = None
-                        mask = _zone_prt_mask(merged) if isinstance(merged, dict) else 0
-                        if mask <= 0:
+                        if not isinstance(merged, dict):
                             continue
-                        for pid in range(1, 33):
-                            if (mask & (1 << (pid - 1))) != 0:
-                                touched.add(pid)
+                        st = merged.get("static") if isinstance(merged.get("static"), dict) else {}
+                        part_ids = _partition_ids_from_state()
+                        pids = _decode_zone_prt_partition_ids(st.get("PRT"), part_ids)
+                        for pid in pids:
+                            touched.add(pid)
                     if touched:
                         for pid in sorted(touched):
                             publish_alarm_zones_for_partition(pid)
