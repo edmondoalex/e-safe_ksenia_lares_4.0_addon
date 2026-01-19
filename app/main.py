@@ -1953,6 +1953,23 @@ def main():
                 continue
             publish("partitions", {"ID": eid, "ARM": arm})
 
+    def _seed_output_states(snapshot: dict):
+        try:
+            ents = snapshot.get("entities") or []
+        except Exception:
+            ents = []
+        if not isinstance(ents, list):
+            return
+        for e in ents:
+            if str(e.get("type") or "").lower() != "outputs":
+                continue
+            try:
+                eid = str(int(e.get("id")))
+            except Exception:
+                continue
+            # Publish a minimal patch; publish() will merge static+realtime from state.
+            publish("outputs", {"ID": eid})
+
     def _signal_to_percent(value):
         if value in (None, ""):
             return None
@@ -2462,6 +2479,12 @@ def main():
         # Publish derived partition sensors once at reconnect.
         try:
             publish_alarm_zones_for_all_partitions()
+        except Exception:
+            pass
+
+        # Seed outputs state topics so HA entities are not stuck on "unknown" until the first realtime update.
+        try:
+            _seed_output_states(state.snapshot())
         except Exception:
             pass
 

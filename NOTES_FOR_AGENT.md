@@ -193,6 +193,10 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
   - File: `app/main.py`, `config.yaml`
   - Versione: `config.yaml` -> 5.2.28 (partition armed binary_sensor)
 
+- Outputs: seed stato MQTT al reconnect (pubblica retained su outputs/<id> per evitare entity HA unknown) (v5.2.29).
+  - File: `app/main.py`, `config.yaml`
+  - Versione: `config.yaml` -> 5.2.29 (seed outputs state)
+
 ## File principali
 - `app/main.py`: MQTT, discovery, cmd handler, republish/cleanup discovery.
 - `app/websocketmanager.py`: WS verso centrale, listener realtime/static, comandi (write cfg).
