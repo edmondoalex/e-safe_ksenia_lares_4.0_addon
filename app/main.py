@@ -1492,6 +1492,22 @@ def main():
                 payload = _apply_device(payload, "systems")
                 if _disc_publish("sensor", obj_id, payload):
                     published += 1
+
+            # System arm/mode description -> sensor (text)
+            obj_id = f"{mqtt_prefix_slug}_sys_{sid}_arm_desc"
+            state_topic = f"{mqtt_prefix}/systems/{sid}"
+            payload = {
+                "name": f"Sistema {sid} Modalità",
+                "unique_id": obj_id,
+                "state_topic": state_topic,
+                # Accept both raw payloads ({ARM:{D:...}}) and merged payloads ({realtime:{ARM:{D:...}}}).
+                "value_template": "{{ value_json.ARM.D | default(value_json.realtime.ARM.D | default('')) }}",
+                "icon": "mdi:shield",
+                "default_entity_id": f"sensor.{obj_id}",
+            }
+            payload = _apply_device(payload, "systems")
+            if _disc_publish("sensor", obj_id, payload):
+                published += 1
         logger.info(f"MQTT discovery: entities={len(entities)} per_type={per_type} published={published}")
         return published
 
