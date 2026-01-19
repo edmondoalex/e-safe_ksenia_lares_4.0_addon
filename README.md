@@ -130,6 +130,23 @@ In E-Manager , i device MQTT sono raggruppati per categoria (es. “Sensori”, 
 ### Log
 I log dell’add-on sono in **Supervisor → Add-on → Log**.
 
+## Git + sync (PC ? Samba)
+- Repo GitHub: `https://github.com/edmondoalex/e-safe_ksenia_lares_4.0_addon`
+- Samba (deploy HA): `\\192.168.3.24\addons\ksenia_lares_addon`
+
+### Clone sul PC
+Esempio:
+- `git clone https://github.com/edmondoalex/e-safe_ksenia_lares_4.0_addon.git C:\Users\NUC Alex\workspace\e-safe_ksenia_lares_4.0_addon`
+
+### Import automatico da Samba ? repo PC (e commit/push opzionali)
+Dal repo locale:
+- Solo sync file: `powershell -ExecutionPolicy Bypass -File tools\sync-samba-to-pc.ps1`
+- Sync + commit: `powershell -ExecutionPolicy Bypass -File tools\sync-samba-to-pc.ps1 -AutoCommit -CommitMessage "Update"`
+- Sync + commit + push: `powershell -ExecutionPolicy Bypass -File tools\sync-samba-to-pc.ps1 -AutoCommit -Push -CommitMessage "Update"`
+
+Automazione (Windows **Operazioni pianificate**, es. ogni 1 minuto):
+- `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\NUC Alex\workspace\e-safe_ksenia_lares_4.0_addon\tools\sync-samba-to-pc.ps1" -AutoCommit -Push -CommitMessage "Auto sync"`
+
 ## Note
 - Audio/beep su browser: spesso richiede un tap dell’utente per sbloccare l’audio (policy browser).
 - UI: ottimizzata anche per display piccoli (tablet embedded).

@@ -3,11 +3,11 @@
 Questo file serve a riprendere velocemente il contesto quando si riapre VS Code / una nuova sessione.
 
 ## Repo
-- Percorso: `\\192.168.3.24\addons\ksenia_lares_addon`
+- Deploy Home Assistant (Samba): `\\192.168.3.24\addons\ksenia_lares_addon`
+- Repo locale (PC): `C:\Users\NUC Alex\workspace\e-safe_ksenia_lares_4.0_addon`
+- Remote GitHub: `https://github.com/edmondoalex/e-safe_ksenia_lares_4.0_addon`
 - Add-on Home Assistant (Supervisor) + UI Ingress + MQTT Discovery.
-- Non è un repo git (niente `git log`).
 - Policy: vedi `AGENTS.md` (obbligo aggiornare questo file ad ogni modifica).
-
 ## Versioning
 - La versione add-on è in `config.yaml` (`version:`).
 - La UI legge la versione da `ADDON_VERSION` env (se presente) oppure da `config.yaml` copiato nel container.
@@ -145,12 +145,11 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
 - Riavviare add-on se necessario.
 
 ## Git / deploy (consigliato)
-- Repo “source of truth” su PC (GitHub): `C:\Users\NUC Alex\OneDrive\EA SAS\0000000033-TOOL\HASSIO ADDON\Ksenia lares`
-- Deploy su Home Assistant (Samba): `\\192.168.3.24\addons\ksenia_lares_addon`
-- Regola: lavorare/committare sul repo PC, poi sincronizzare verso Samba per installare/aggiornare l’add-on (così versioni e sorgenti restano allineati).
-- Script: `tools/sync-addon.ps1` (robocopy) per sync PC → Samba (e/o prima import Samba → PC).
-- Script: `tools/bootstrap-git.ps1` per inizializzare/configurare Git remoto e fare `commit/push` dal repo su PC.
-
+- Regola: lavora/committa sul repo PC e usa GitHub come source of truth.
+- Deploy su Home Assistant: sincronizza verso Samba per aggiornare l�add-on.
+- Script: `tools\sync-addon.ps1` (robocopy) per sync tra cartelle (es. repo PC ? Samba).
+- Script: `tools\sync-samba-to-pc.ps1` per import Samba ? repo PC (+ `-AutoCommit` / `-Push`).
+- Automazione: Operazioni pianificate (es. ogni 1 minuto) che esegue `tools\sync-samba-to-pc.ps1`.
 ## Come tenere aggiornato questo file
 - Dopo ogni sessione: aggiungere una riga in “Bugfix importanti fatti” o “TODO” con:
   - cosa è stato cambiato
