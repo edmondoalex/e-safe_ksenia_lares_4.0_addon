@@ -1648,6 +1648,28 @@ def main():
             if _disc_publish("alarm_control_panel", obj_id, payload):
                 published += 1
 
+            # Partitions -> binary_sensor (armed/disarmed, ignore delay/immediate)
+            try:
+                obj_id2 = f"{mqtt_prefix_slug}_part_{eid}_armed"
+                payload2 = {
+                    "name": f"Stato partizioni {name}",
+                    "unique_id": obj_id2,
+                    "state_topic": f"{mqtt_prefix}/partitions/{eid}",
+                    "value_template": "{% set a = value_json.get('ARM') %}{% if a is mapping %}{% set s = (a.get('S') or '') %}{% else %}{% set s = (a or '') %}{% endif %}{% set s = (s|string)|upper %}{{ 'ON' if s not in ['','D','DISARM','DISINSERITO'] else 'OFF' }}",
+                    "payload_on": "ON",
+                    "payload_off": "OFF",
+                    "device_class": "safety",
+                    "availability_topic": f"{mqtt_prefix}/status",
+                    "payload_available": "online",
+                    "payload_not_available": "offline",
+                    "default_entity_id": f"binary_sensor.{mqtt_prefix_slug}_part_{eid}_armed",
+                }
+                payload2 = _apply_device(payload2, "partitions")
+                if _disc_publish("binary_sensor", obj_id2, payload2):
+                    published += 1
+            except Exception:
+                pass
+
             # Partition alarm zones summary -> sensor (text)
             try:
                 part_name = str(name or f"Partizione {eid}").strip() or f"Partizione {eid}"

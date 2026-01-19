@@ -189,6 +189,10 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
   - File: `app/main.py`, `config.yaml`
   - Versione: `config.yaml` -> 5.2.27 (last alarm zone only)
 
+- Partitions: aggiunto binary_sensor armato/disarmato per partizione (ignora ritardo/immediato) (v5.2.28).
+  - File: `app/main.py`, `config.yaml`
+  - Versione: `config.yaml` -> 5.2.28 (partition armed binary_sensor)
+
 ## File principali
 - `app/main.py`: MQTT, discovery, cmd handler, republish/cleanup discovery.
 - `app/websocketmanager.py`: WS verso centrale, listener realtime/static, comandi (write cfg).
