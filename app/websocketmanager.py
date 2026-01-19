@@ -11,6 +11,7 @@ import inspect
 from wscall import (
     ws_login,
     realtime,
+    realtime_select,
     readData,
     readZones,
     exeScenario,
@@ -94,6 +95,7 @@ class WebSocketManager:
         self._schedulers_task = None
         self._thermostats_task = None
         self._zones_task = None
+        self._outputs_task = None
         self._last_zones_by_id = {}
         self._on_reconnect = None  # async callback(read_data, realtime_initial, system_version)
 
@@ -165,6 +167,8 @@ class WebSocketManager:
             self._thermostats_task = asyncio.create_task(self.thermostats_cfg_poller())
         if self._zones_task is None or self._zones_task.done():
             self._zones_task = asyncio.create_task(self.zones_poller())
+        if self._outputs_task is None or self._outputs_task.done():
+            self._outputs_task = asyncio.create_task(self.outputs_poller())
 
     def _zone_compact(self, z: dict) -> dict:
         if not isinstance(z, dict):
@@ -425,6 +429,83 @@ class WebSocketManager:
                     await self._notify_listeners("zones", updates)
             except Exception as exc:
                 self._logger.error("zones poller error: %s", exc)
+            await asyncio.sleep(poll_s)
+
+    async def outputs_poller(self):
+        # Periodically refresh realtime outputs snapshot: some panels miss emitting STATUS_OUTPUTS
+        # for certain changes, so this helps keep UI/MQTT aligned.
+        poll_s = 20.0
+        while True:
+            if not self._running:
+                await asyncio.sleep(2.0)
+                continue
+            try:
+                async with self._ws_lock:
+                    if not self._ws or not self._loginId:
+                        await asyncio.sleep(poll_s)
+                        continue
+                    resp = await realtime_select(
+                        self._ws,
+                        self._loginId,
+                        self._logger,
+                        ["STATUS_OUTPUTS"],
+                        dispatch_unhandled=self.handle_message,
+                    )
+                payload = resp.get("PAYLOAD") if isinstance(resp, dict) else None
+                updates = payload.get("STATUS_OUTPUTS") if isinstance(payload, dict) else None
+                if isinstance(updates, dict):
+                    updates = [updates]
+                if not isinstance(updates, list) or not updates:
+                    await asyncio.sleep(poll_s)
+                    continue
+
+                # Merge into cached realtime snapshot (by ID) and emit small patches.
+                patches = []
+                try:
+                    if self._realtimeInitialData is None:
+                        self._realtimeInitialData = {}
+                    if "PAYLOAD" not in self._realtimeInitialData:
+                        self._realtimeInitialData["PAYLOAD"] = {}
+                    prev = self._realtimeInitialData["PAYLOAD"].get("STATUS_OUTPUTS") or []
+                    if isinstance(prev, dict):
+                        prev = [prev]
+                    prev_by_id = {}
+                    if isinstance(prev, list):
+                        for it in prev:
+                            if not isinstance(it, dict):
+                                continue
+                            prev_by_id[str(it.get("ID"))] = it
+                    for it in updates:
+                        if not isinstance(it, dict):
+                            continue
+                        oid = str(it.get("ID") or "").strip()
+                        if not oid:
+                            continue
+                        old = prev_by_id.get(oid) if isinstance(prev_by_id.get(oid), dict) else None
+                        if old is None:
+                            patches.append(it)
+                            prev_by_id[oid] = it
+                            continue
+                        merged = {**old, **it}
+                        prev_by_id[oid] = merged
+                        patch = {"ID": oid}
+                        changed = False
+                        for k in ("STA", "POS", "LEV", "DIM"):
+                            if k in it and (old.get(k) != it.get(k)):
+                                patch[k] = it.get(k)
+                                changed = True
+                        if changed:
+                            patches.append(patch)
+                    self._realtimeInitialData["PAYLOAD"]["STATUS_OUTPUTS"] = list(prev_by_id.values())
+                except Exception:
+                    patches = updates
+
+                if patches:
+                    await self._notify_listeners("lights", patches)
+                    await self._notify_listeners("switches", patches)
+                    await self._notify_listeners("covers", patches)
+            except Exception as exc:
+                self._logger.error("outputs poller error: %s", exc)
             await asyncio.sleep(poll_s)
 
     async def _close_ws(self):

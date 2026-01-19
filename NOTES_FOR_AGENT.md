@@ -205,6 +205,10 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
   - File: `app/main.py`, `config.yaml`
   - Versione: `config.yaml` -> 5.2.31 (robust outputs state)
 
+- Outputs: aggiunto poller refresh STATUS_OUTPUTS (realtime_select) per riallineare stato quando qualche update realtime si perde (v5.2.32).
+  - File: `app/websocketmanager.py`, `app/wscall.py`, `config.yaml`
+  - Versione: `config.yaml` -> 5.2.32 (outputs poller)
+
 ## File principali
 - `app/main.py`: MQTT, discovery, cmd handler, republish/cleanup discovery.
 - `app/websocketmanager.py`: WS verso centrale, listener realtime/static, comandi (write cfg).

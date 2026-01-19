@@ -84,6 +84,48 @@ async def realtime(websocket,login_id,_LOGGER):
         _LOGGER.error(response_realtime)
     return response_realtime
 
+
+"""
+Refresh realtime snapshot for a subset of TYPES.
+
+This sends another REALTIME/REGISTER message and waits for a reply containing at least
+one of the requested payload keys.
+"""
+async def realtime_select(websocket, login_id, _LOGGER, types, dispatch_unhandled=None):
+    global cmd_id
+    cmd_id += 1
+    types_list = types if isinstance(types, list) else []
+    types_json = json.dumps(types_list)
+    json_cmd = addCRC(
+        '{"SENDER":"HomeAssistant", "RECEIVER":"", "CMD":"REALTIME", "ID":"'
+        + str(cmd_id)
+        + '", "PAYLOAD_TYPE":"REGISTER", "PAYLOAD":{"ID_LOGIN":"'
+        + str(login_id)
+        + '","TYPES":'
+        + types_json
+        + '},"TIMESTAMP":"'
+        + str(int(time.time()))
+        + '","CRC_16":"0x0000"}'
+    )
+    try:
+        await websocket.send(json_cmd)
+        deadline = time.time() + 10
+        while True:
+            timeout = max(0.1, deadline - time.time())
+            if timeout <= 0:
+                return {}
+            json_resp = await asyncio.wait_for(websocket.recv(), timeout=timeout)
+            resp = json.loads(json_resp)
+            payload = resp.get("PAYLOAD") if isinstance(resp, dict) else None
+            if isinstance(payload, dict):
+                for t in types_list:
+                    if t in payload:
+                        return resp
+            await _dispatch_unhandled(dispatch_unhandled, resp)
+    except Exception as e:
+        _LOGGER.error(f"realtime_select call failed: {e}")
+        return {}
+
 """
 Fetch panel system version/info (MODEL/FW/WS/etc).
 
