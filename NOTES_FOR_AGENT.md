@@ -185,6 +185,10 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
   - File: `app/main.py`, `config.yaml`
   - Versione: `config.yaml` -> 5.2.26 (alarm zones from logs)
 
+- Partitions: il sensore "Stato sensori in allarme" ora mostra solo l\x27ultimo sensore (evento ZALARM), senza lista/virgole; reset a disinserimento (v5.2.27).
+  - File: `app/main.py`, `config.yaml`
+  - Versione: `config.yaml` -> 5.2.27 (last alarm zone only)
+
 ## File principali
 - `app/main.py`: MQTT, discovery, cmd handler, republish/cleanup discovery.
 - `app/websocketmanager.py`: WS verso centrale, listener realtime/static, comandi (write cfg).
