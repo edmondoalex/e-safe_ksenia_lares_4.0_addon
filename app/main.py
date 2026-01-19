@@ -1159,8 +1159,10 @@ def main():
             if not isinstance(sys_merged, dict):
                 continue
             rt = sys_merged.get("realtime") if isinstance(sys_merged.get("realtime"), dict) else {}
-            # Prefer current alarms list.
+            # Prefer current alarms list; if empty, try ALARM_MEM (some panels only expose memory).
             alarm_list = rt.get("ALARM")
+            if not isinstance(alarm_list, list) or not alarm_list:
+                alarm_list = rt.get("ALARM_MEM")
             if not isinstance(alarm_list, list):
                 continue
             for it in alarm_list:

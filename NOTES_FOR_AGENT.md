@@ -165,6 +165,10 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
   - File: `app/main.py`, `config.yaml`
   - Versione: `config.yaml` -> 5.2.21 (alarm zones uses systems.ALARM)
 
+- Systems/Partitions: log STATUS_SYSTEM quando verbose + fallback ALARM_MEM per ricavare zone in allarme (v5.2.22).
+  - File: `app/websocketmanager.py`, `app/main.py`, `config.yaml`
+  - Versione: `config.yaml` -> 5.2.22 (diagnostica + fallback alarms)
+
 ## File principali
 - `app/main.py`: MQTT, discovery, cmd handler, republish/cleanup discovery.
 - `app/websocketmanager.py`: WS verso centrale, listener realtime/static, comandi (write cfg).

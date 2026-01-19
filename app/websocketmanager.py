@@ -981,6 +981,34 @@ class WebSocketManager:
                     "Updating state for systems: %s",
                     systems,
                 )
+                # Help diagnose panels that don't seem to update systems in UI/MQTT.
+                if self._output_debug_verbose:
+                    try:
+                        if isinstance(systems, list):
+                            sample = []
+                            for it in systems[:6]:
+                                if not isinstance(it, dict):
+                                    continue
+                                row = {"ID": it.get("ID")}
+                                arm = it.get("ARM")
+                                if isinstance(arm, dict):
+                                    row["ARM"] = {"S": arm.get("S"), "D": arm.get("D")}
+                                temp = it.get("TEMP")
+                                if isinstance(temp, dict):
+                                    row["TEMP"] = {"IN": temp.get("IN"), "OUT": temp.get("OUT")}
+                                sample.append(row)
+                            self._logger.info(
+                                "WS1 REALTIME STATUS_SYSTEM n=%s sample=%s",
+                                len(systems),
+                                sample,
+                            )
+                        else:
+                            self._logger.info(
+                                "WS1 REALTIME STATUS_SYSTEM type=%s",
+                                type(systems).__name__,
+                            )
+                    except Exception:
+                        pass
 
                 # Update the initial realtime SYSTEM data so getSystem() sees fresh values
                 if self._realtimeInitialData is None:
