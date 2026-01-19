@@ -153,6 +153,10 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
   - File: `app/main.py`, `config.yaml`
   - Versione: `config.yaml` -> 5.2.18 (fix value_template ARM.D)
 
+- Partitions: aggiunto sensore "Stato sensori in allarme" per partizione (lista zone in allarme) che si azzera al disinserimento (v5.2.19).
+  - File: `app/main.py`, `config.yaml`
+  - Versione: `config.yaml` -> 5.2.19 (alarm zones per partition)
+
 ## File principali
 - `app/main.py`: MQTT, discovery, cmd handler, republish/cleanup discovery.
 - `app/websocketmanager.py`: WS verso centrale, listener realtime/static, comandi (write cfg).

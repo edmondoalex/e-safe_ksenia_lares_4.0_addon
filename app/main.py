@@ -1051,6 +1051,133 @@ def main():
         except Exception:
             pass
 
+    def _partition_arm_state(part_payload: dict) -> str:
+        if not isinstance(part_payload, dict):
+            return ""
+        arm_raw = part_payload.get("ARM")
+        if isinstance(arm_raw, dict):
+            return str(arm_raw.get("S") or arm_raw.get("s") or arm_raw.get("CODE") or "").strip().upper()
+        return str(arm_raw or "").strip().upper()
+
+    def _partition_is_disarmed(part_payload: dict) -> bool:
+        s = _partition_arm_state(part_payload)
+        return s in ("", "D", "DISARM", "DISINSERITO")
+
+    def _zone_prt_mask(zone_payload: dict) -> int:
+        if not isinstance(zone_payload, dict):
+            return 0
+        st = zone_payload.get("static") if isinstance(zone_payload.get("static"), dict) else {}
+        prt = st.get("PRT")
+        if prt is None:
+            return 0
+        try:
+            return int(str(prt).strip())
+        except Exception:
+            return 0
+
+    def _zone_is_alarm(zone_payload: dict) -> bool:
+        if not isinstance(zone_payload, dict):
+            return False
+        rt = zone_payload.get("realtime") if isinstance(zone_payload.get("realtime"), dict) else {}
+
+        def _n(v):
+            return str(v if v is not None else "").strip().upper()
+
+        sta = _n(rt.get("STA"))
+        a = _n(rt.get("A"))
+        if sta == "A":
+            return True
+        if a not in ("", "N", "0", "F", "OFF", "FALSE", "NO"):
+            return True
+        return False
+
+    def _zones_alarm_for_partition(pid: int) -> list[tuple[str, str]]:
+        if pid <= 0:
+            return []
+        bit = 1 << (pid - 1)
+        out: list[tuple[str, str]] = []
+        try:
+            snap = state.snapshot()
+            entities = snap.get("entities") or []
+        except Exception:
+            entities = []
+        if not isinstance(entities, list):
+            return []
+        for e in entities:
+            if not isinstance(e, dict):
+                continue
+            if str(e.get("type") or "").lower() != "zones":
+                continue
+            zid = str(e.get("id") or "").strip()
+            if not zid:
+                continue
+            try:
+                merged = state.get_merged("zones", zid)
+            except Exception:
+                merged = e
+            if not isinstance(merged, dict):
+                continue
+            if (_zone_prt_mask(merged) & bit) == 0:
+                continue
+            if not _zone_is_alarm(merged):
+                continue
+            name = str(merged.get("name") or "").strip() or f"Zona {zid}"
+            out.append((zid, name))
+        return out
+
+    def _format_alarm_zones_state(items: list[tuple[str, str]]) -> str:
+        if not items:
+            return "Nessuno"
+        parts = [str(nm).strip() for _zid, nm in items if str(nm or "").strip()]
+        s = ", ".join(parts)
+        if not s:
+            return "Nessuno"
+        if len(s) <= 240:
+            return s
+        return s[:235].rstrip() + "…"
+
+    def publish_alarm_zones_for_partition(pid: int):
+        try:
+            pid_int = int(pid)
+        except Exception:
+            return
+        if pid_int <= 0:
+            return
+        try:
+            part = state.get_merged("partitions", str(pid_int))
+        except Exception:
+            part = None
+        if not isinstance(part, dict):
+            return
+        if _partition_is_disarmed(part):
+            state_str = "Nessuno"
+        else:
+            state_str = _format_alarm_zones_state(_zones_alarm_for_partition(pid_int))
+        topic = f"{mqtt_prefix}/partitions/{pid_int}/alarm_zones"
+        _log_mqtt("publish", topic, state_str, True)
+        mqttc.publish(topic, state_str, retain=True)
+
+    def publish_alarm_zones_for_all_partitions():
+        try:
+            snap = state.snapshot()
+            entities = snap.get("entities") or []
+        except Exception:
+            entities = []
+        if not isinstance(entities, list):
+            return
+        pids: list[int] = []
+        for e in entities:
+            if not isinstance(e, dict):
+                continue
+            if str(e.get("type") or "").lower() != "partitions":
+                continue
+            try:
+                pids.append(int(str(e.get("id")).strip()))
+            except Exception:
+                continue
+        for pid in sorted(set([p for p in pids if p > 0])):
+            publish_alarm_zones_for_partition(pid)
+
     # ------------------------------------------------------------------
     # MQTT Discovery (read-only: espone stato via Home Assistant MQTT)
     # ------------------------------------------------------------------
@@ -1267,6 +1394,26 @@ def main():
             payload = _apply_device(payload, "partitions")
             if _disc_publish("alarm_control_panel", obj_id, payload):
                 published += 1
+
+            # Partition alarm zones summary -> sensor (text)
+            try:
+                part_name = str(name or f"Partizione {eid}").strip() or f"Partizione {eid}"
+                obj_id2 = f"{mqtt_prefix_slug}_part_{eid}_alarm_zones"
+                payload2 = {
+                    "name": f"Stato sensori in allarme ({part_name})",
+                    "unique_id": obj_id2,
+                    "state_topic": f"{mqtt_prefix}/partitions/{eid}/alarm_zones",
+                    "icon": "mdi:alarm-light",
+                    "default_entity_id": f"sensor.{mqtt_prefix_slug}_part_{eid}_sensori_in_allarme",
+                    "availability_topic": f"{mqtt_prefix}/status",
+                    "payload_available": "online",
+                    "payload_not_available": "offline",
+                }
+                payload2 = _apply_device(payload2, "partitions")
+                if _disc_publish("sensor", obj_id2, payload2):
+                    published += 1
+            except Exception:
+                pass
 
         # Outputs -> switch (controllo via MQTT)
         for e in entities:
@@ -1906,6 +2053,51 @@ def main():
             except Exception as exc:
                 logger.error("Icon HTTP notify error: %s", exc)
 
+        # Derived sensors: list of alarm zones per partition.
+        try:
+            if entity_type in ("zones", "partitions"):
+                if entity_type == "partitions" and isinstance(updates, list):
+                    pids = []
+                    for it in updates:
+                        if not isinstance(it, dict):
+                            continue
+                        try:
+                            pids.append(int(str(it.get("ID")).strip()))
+                        except Exception:
+                            continue
+                    for pid in sorted(set([p for p in pids if p > 0])):
+                        publish_alarm_zones_for_partition(pid)
+                elif entity_type == "zones" and isinstance(updates, list):
+                    touched = set()
+                    for it in updates:
+                        if not isinstance(it, dict):
+                            continue
+                        zid = it.get("ID")
+                        if zid is None:
+                            continue
+                        try:
+                            zid_s = str(int(str(zid).strip()))
+                        except Exception:
+                            zid_s = str(zid).strip()
+                        if not zid_s:
+                            continue
+                        try:
+                            merged = state.get_merged("zones", zid_s)
+                        except Exception:
+                            merged = None
+                        mask = _zone_prt_mask(merged) if isinstance(merged, dict) else 0
+                        if mask <= 0:
+                            continue
+                        for pid in range(1, 33):
+                            if (mask & (1 << (pid - 1))) != 0:
+                                touched.add(pid)
+                    for pid in sorted(touched):
+                        publish_alarm_zones_for_partition(pid)
+                else:
+                    publish_alarm_zones_for_all_partitions()
+        except Exception:
+            pass
+
     manager = WebSocketManager(
         ip=ksenia_host,
         pin=ksenia_pin,
@@ -1941,6 +2133,12 @@ def main():
                 icon_notifier.maybe_notify(state.snapshot())
         except Exception as exc:
             logger.error(f"Icon HTTP notify error (reconnect): {exc}")
+
+        # Publish derived partition sensors once at reconnect.
+        try:
+            publish_alarm_zones_for_all_partitions()
+        except Exception:
+            pass
 
         # Seed event logs into Debug UI state (they aren't part of READ/REALTIME payloads).
         try:
