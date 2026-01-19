@@ -1291,7 +1291,8 @@ def main():
                 "payload_off": "OFF",
                 "state_on": "ON",
                 "state_off": "OFF",
-                "value_template": "{{ 'ON' if (value_json.STA | default('')).upper() == 'ON' else 'OFF' }}",
+                # Accept both raw payloads ({STA:...}) and merged payloads ({realtime:{STA:...}}).
+                "value_template": "{{ 'ON' if ((value_json.STA | default(value_json.realtime.STA | default('')) ) | upper) == 'ON' else 'OFF' }}",
                 "default_entity_id": f"switch.{obj_id}",
             }
             payload = _apply_device(payload, "outputs")

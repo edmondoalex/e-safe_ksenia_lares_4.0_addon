@@ -137,6 +137,10 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
   - File: `app/main.py`, `config.yaml`
   - Versione: `config.yaml` -> 5.2.14 (stabilita topic outputs)
 
+- MQTT/HA: template outputs aggiornato per leggere STA sia da payload raw (STA) sia da payload merged (realtime.STA), cosi HA riceve correttamente gli aggiornamenti (v5.2.15).
+  - File: `app/main.py`, `config.yaml`
+  - Versione: `config.yaml` -> 5.2.15 (fix template outputs)
+
 ## File principali
 - `app/main.py`: MQTT, discovery, cmd handler, republish/cleanup discovery.
 - `app/websocketmanager.py`: WS verso centrale, listener realtime/static, comandi (write cfg).
