@@ -905,6 +905,15 @@ def main():
                         payload["ID"] = str(int(str(payload.get("ID")).strip()))
                     except Exception:
                         payload["ID"] = entity_id
+                # Convenience: expose realtime STA at root for outputs so HA templates stay simple/robust.
+                try:
+                    if str(state_entity_type).lower() == "outputs":
+                        if "STA" not in payload:
+                            rt = payload.get("realtime") if isinstance(payload.get("realtime"), dict) else {}
+                            if isinstance(rt, dict) and rt.get("STA") is not None:
+                                payload["STA"] = rt.get("STA")
+                except Exception:
+                    pass
         except Exception:
             payload = item
 
@@ -1713,8 +1722,8 @@ def main():
                 "payload_off": "OFF",
                 "state_on": "ON",
                 "state_off": "OFF",
-                # Accept both raw payloads ({STA:...}) and merged payloads ({realtime:{STA:...}}).
-                "value_template": "{{ 'ON' if ((value_json.STA | default(value_json.realtime.STA | default('')) ) | upper) == 'ON' else 'OFF' }}",
+                # Accept both raw payloads ({STA:...}) and merged payloads ({realtime:{STA:...}}) safely.
+                "value_template": "{{ 'ON' if ((value_json.get('STA') or value_json.get('realtime', {}).get('STA') or '') | upper) == 'ON' else 'OFF' }}",
                 "default_entity_id": f"switch.{obj_id}",
             }
             payload = _apply_device(payload, "outputs")
