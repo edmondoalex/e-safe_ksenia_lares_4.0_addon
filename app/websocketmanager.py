@@ -973,8 +973,33 @@ class WebSocketManager:
                 )
                 await self._notify_listeners("partitions", data["PARTITIONS"])
             if "STATUS_ZONES" in data:
-                self._logger.debug("Realtime zones update: %s", data["STATUS_ZONES"])
-                await self._notify_listeners("zones", data["STATUS_ZONES"])
+                zones_updates = data["STATUS_ZONES"]
+                self._logger.debug("Realtime zones update: %s", zones_updates)
+                if self._output_debug_verbose:
+                    try:
+                        if isinstance(zones_updates, list):
+                            sample = []
+                            for it in zones_updates[:12]:
+                                if not isinstance(it, dict):
+                                    continue
+                                row = {"ID": it.get("ID")}
+                                for k in ("STA", "A", "BYP", "T", "VAS", "FM", "CMD", "AN"):
+                                    if k in it:
+                                        row[k] = it.get(k)
+                                sample.append(row)
+                            self._logger.info(
+                                "WS1 REALTIME STATUS_ZONES n=%s sample=%s",
+                                len(zones_updates),
+                                sample,
+                            )
+                        else:
+                            self._logger.info(
+                                "WS1 REALTIME STATUS_ZONES type=%s",
+                                type(zones_updates).__name__,
+                            )
+                    except Exception:
+                        pass
+                await self._notify_listeners("zones", zones_updates)
             if "STATUS_SYSTEM" in data:
                 systems = data["STATUS_SYSTEM"]
                 self._logger.debug(

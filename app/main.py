@@ -1096,7 +1096,39 @@ def main():
                     if pid > 0:
                         mask |= 1 << (pid - 1)
                 return int(mask)
-            return int(s, 0)
+            # Some panels send PRT as a hex bitmask without the "0x" prefix (e.g. "40" => 0x40).
+            # Try both decimal and hex and pick the one that decodes to a reasonable number of partitions.
+            max_id = 32
+
+            def _decode_count(mask_int: int) -> int:
+                if mask_int < 0:
+                    return 10_000
+                cnt = 0
+                for pid in range(1, max_id + 1):
+                    if mask_int & (1 << (pid - 1)):
+                        cnt += 1
+                return cnt if cnt > 0 else 10_000
+
+            candidates = []
+            try:
+                candidates.append(int(float(s)))
+            except Exception:
+                pass
+            is_hexish = all(c in "0123456789abcdefABCDEF" for c in s) and len(s) >= 2
+            try:
+                if s.upper().startswith("0X"):
+                    candidates.append(int(s, 16))
+                elif is_hexish:
+                    candidates.append(int(s, 16))
+            except Exception:
+                pass
+            if not candidates:
+                return 0
+            best = min(candidates, key=_decode_count)
+            try:
+                return int(best)
+            except Exception:
+                return 0
         except Exception:
             return 0
 
