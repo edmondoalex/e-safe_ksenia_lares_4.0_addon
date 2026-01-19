@@ -1,0 +1,1536 @@
+﻿<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <meta http-equiv="Cache-Control" content="no-store, max-age=0"/>
+    <meta http-equiv="Pragma" content="no-cache"/>
+    <meta http-equiv="Expires" content="0"/>
+    <title>Ksenia Lares - Security</title>
+    <style>
+      :root {
+        --bg0: #05070b;
+        --fg: #e7eaf0;
+        --muted: rgba(255,255,255,0.65);
+        --ring-w: 21px;
+        --ring-track: rgba(255,255,255,0.14);
+        --ring-ok: #1ed760;
+        --ring-armed: #2a7fff;
+        --ring-partial: #ffb020;
+        --c-disarm: #00FF00;
+        --c-total: #f92028;
+        --c-partial: #0000FF;
+      }
+      html,body { height:100%; }
+      body {
+        margin:0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+        color: var(--fg);
+        background: radial-gradient(1200px 800px at 50% 40%, #1a2230 0%, var(--bg0) 60%, #000 100%);
+        background-image:
+          linear-gradient(transparent, transparent),
+          radial-gradient(1200px 800px at 50% 40%, #1a2230 0%, var(--bg0) 60%, #000 100%);
+      }
+      body::after {
+        content: "";
+        position: fixed;
+        top: 18px;
+        right: 18px;
+        width: 180px;
+        height: 80px;
+        background: url('/assets/e-safe_scr.png') no-repeat center center / contain;
+        opacity: 0.75;
+        pointer-events: none;
+      }
+      .bg {
+        position:fixed; inset:0;
+        background: radial-gradient(900px 600px at 55% 45%, rgba(255,255,255,0.08), rgba(0,0,0,0.55));
+        filter: blur(28px);
+        opacity: 0.85;
+        pointer-events:none;
+      }
+      .splash {
+        position: fixed;
+        top: 72px;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(1200px 800px at 50% 40%, #1a2230 0%, var(--bg0) 60%, #000 100%);
+        z-index: 10;
+        opacity: 1;
+        transition: opacity 350ms ease;
+      }
+      .splash.hide {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .splash img {
+        width: min(60vw, 520px);
+        max-width: calc(100% - 64px);
+        height: auto;
+        object-fit: contain;
+        opacity: 0.95;
+        filter: drop-shadow(0 18px 60px rgba(0,0,0,0.65));
+      }
+      .topbar {
+        position:fixed; top:0; left:0; right:0;
+        display:flex; gap:18px; justify-content:center; align-items:center;
+        height:72px;
+        background: linear-gradient(to bottom, rgba(0,0,0,0.55), rgba(0,0,0,0));
+        backdrop-filter: blur(8px);
+        z-index: 2;
+      }
+      body.loading .wrap {
+        visibility: hidden;
+      }
+      .tab {
+        font-size: 18px; letter-spacing: 0.5px;
+        color: rgba(255,255,255,0.75);
+        text-decoration:none;
+        padding: 10px 14px;
+        border-radius: 12px;
+      }
+      .tab.active { color: #fff; }
+      .wrap {
+        height:100%;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        padding: 88px 20px 32px;
+        box-sizing: border-box;
+      }
+      .refreshBtn {
+        position: fixed;
+        right: 14px;
+        bottom: 18px;
+        width: 50px;
+        height: 50px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.2);
+        background: rgba(0,0,0,0.45);
+        color: rgba(255,255,255,0.92);
+        cursor: pointer;
+        z-index: 9;
+        opacity: 0.8;
+        transition: opacity 150ms ease, background 150ms ease, border-color 150ms ease, transform 120ms ease;
+      }
+      .refreshBtn:hover { opacity: 1; transform: translateY(-2px); }
+      .refreshBtn:active { transform: scale(0.98); }
+      .refreshBtn.stale {
+        opacity: 1;
+        background: rgba(57,160,255,0.55);
+        border-color: rgba(57,160,255,0.85);
+        box-shadow: 0 0 12px rgba(57,160,255,0.35);
+      }
+      .center {
+        width: min(980px, 100%);
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        gap: 44px;
+      }
+      .sidebtn {
+        width: 140px;
+        text-align:center;
+        color: rgba(255,255,255,0.85);
+        user-select:none;
+        cursor: pointer;
+      }
+      .sidebtn .icon {
+        width: 62px; height: 62px;
+        border-radius: 999px;
+        display:inline-flex; align-items:center; justify-content:center;
+        background: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.12);
+        backdrop-filter: blur(6px);
+      }
+      .sidebtn .label { margin-top: 10px; font-size: 22px; }
+      .main { text-align:center; flex: 1; }
+      .statusline { font-size: 28px; margin-bottom: 44px; }
+      .ring {
+        width: 320px;
+        height: 320px;
+        border-radius: 999px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        margin: 0 auto;
+        border: var(--ring-w) solid var(--ring-ok);
+        box-shadow: none;
+        cursor: pointer;
+        position: relative;
+      }
+      .addonVer {
+        position: absolute;
+        bottom: 14px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 12px;
+        letter-spacing: 0.6px;
+        color: rgba(255,255,255,0.55);
+        user-select: none;
+        pointer-events: none;
+        white-space: nowrap;
+      }
+      .ring.delay {
+        border-color: transparent;
+      }
+      .ring.delay::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 999px;
+        background: conic-gradient(
+          var(--ring-color, var(--c-total)) 0turn calc(var(--p, 0) * 1turn),
+          var(--ring-track) calc(var(--p, 0) * 1turn) 1turn
+        );
+        -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - var(--ring-w)), #000 calc(100% - var(--ring-w)));
+        mask: radial-gradient(farthest-side, transparent calc(100% - var(--ring-w)), #000 calc(100% - var(--ring-w)));
+      }
+      .ring.state-disarm { border-color: var(--c-disarm); }
+      .ring.state-total { border-color: var(--c-total); }
+      .ring.state-partial { border-color: var(--c-partial); }
+      .lock {
+        opacity: 0.92;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 1px;
+        min-height: 1px;
+      }
+      .lockText {
+        font-size: clamp(72px, 14vw, 104px);
+        font-weight: 300;
+        letter-spacing: -2px;
+        line-height: 1;
+        color: rgba(255,255,255,0.92);
+        user-select: none;
+      }
+      .lockImg {
+        width: clamp(200px, 40vw, 248px);
+        height: clamp(200px, 40vw, 248px);
+        object-fit: contain;
+        display: block;
+        animation: none !important;
+      }
+      .lockImg.alarm {
+        animation: alarmPulse 1.05s ease-in-out infinite !important;
+      }
+      @keyframes alarmPulse {
+        0%   { opacity: 1; transform: scale(1); }
+        45%  { opacity: 0.25; transform: scale(1.06); }
+        100% { opacity: 1; transform: scale(1); }
+      }
+      .scen {
+        display: block;
+        margin-top: 56px;
+        font-size: 24px;
+        color: rgba(255,255,255,0.92);
+        min-height: 1em;
+      }
+      .hint { margin-top: 10px; color: rgba(255,255,255,0.55); font-size: 14px; }
+      .alarmMem {
+        margin-top: 14px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 80, 80, 0.35);
+        background: rgba(255, 80, 80, 0.10);
+        cursor: pointer;
+      }
+      .alarmMem img {
+        width: 20px;
+        height: 20px;
+        display: block;
+      }
+      .toast {
+        display: none;
+        position: fixed;
+        left: 50%;
+        bottom: 22px;
+        transform: translateX(-50%);
+        background: rgba(0,0,0,0.78);
+        border: 1px solid rgba(255,255,255,0.12);
+        color: rgba(255,255,255,0.95);
+        padding: 10px 14px;
+        border-radius: 12px;
+        font-size: 13px;
+        letter-spacing: 0.2px;
+        z-index: 20;
+        max-width: min(520px, calc(100% - 32px));
+        text-align: center;
+      }
+      .modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.72);
+        backdrop-filter: blur(8px);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 5;
+      }
+      .modal.show { display: flex; }
+      .sheet {
+        width: min(820px, calc(100% - 24px));
+        max-height: min(680px, calc(100% - 24px));
+        overflow: auto;
+        overflow-x: hidden;
+        background: rgba(14,16,22,0.95);
+        border: 1px solid rgba(255,255,255,0.10);
+        border-radius: 16px;
+        box-shadow: 0 22px 80px rgba(0,0,0,0.55);
+      }
+      .sheet.mode-menu {
+        width: min(560px, calc(100% - 24px));
+        max-height: 260px;
+        overflow: hidden;
+      }
+      .sheet.mode-list {
+        width: min(520px, calc(100% - 24px));
+      }
+      .sheet.mode-pin {
+        width: min(560px, calc(100% - 24px));
+        max-height: calc(100% - 24px);
+        overflow: auto;
+        overflow-x: hidden;
+      }
+      .sheet.mode-menu .sheetHead,
+      .sheet.mode-list .sheetHead,
+      .sheet.mode-pin .sheetHead {
+        display: none;
+      }
+      .sheet.mode-menu .sheetBody {
+        padding: 16px 14px 18px;
+      }
+      .sheet.mode-menu .actionRow {
+        margin: 0;
+        gap: 26px;
+      }
+      .sheet.mode-menu .actionBtn .dot {
+        width: 76px;
+        height: 76px;
+        border-width: 3px;
+      }
+      .sheet.mode-menu .actionBtn .dot svg {
+        width: 34px;
+        height: 34px;
+      }
+      .sheet.mode-menu .actionBtn .t {
+        font-size: 20px;
+        margin-top: 10px;
+      }
+      .sheet.mode-list .sheetBody {
+        padding: 14px 14px 14px;
+      }
+      .sheet.mode-list .scFilter {
+        display: none;
+      }
+      .sheet.mode-list .scRow {
+        margin-top: 8px;
+      }
+      .sheet.mode-list .scMeta {
+        display: none;
+      }
+      .sheetHead {
+        position: sticky;
+        top: 0;
+        background: rgba(14,16,22,0.92);
+        backdrop-filter: blur(10px);
+        padding: 14px 14px 10px;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+        display:flex;
+        align-items:center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .sheetTitle { font-size: 18px; color: rgba(255,255,255,0.92); }
+      .btn {
+        border: 1px solid rgba(255,255,255,0.14);
+        background: rgba(255,255,255,0.06);
+        color: rgba(255,255,255,0.9);
+        padding: 8px 12px;
+        border-radius: 12px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .sheetBody { padding: 12px 14px 14px; }
+      .actionRow { display:flex; gap: 18px; justify-content:center; flex-wrap:wrap; margin: 10px 0 16px; }
+      .actionBtn { background: transparent; border: 0; color: rgba(255,255,255,0.92); cursor:pointer; }
+      .actionBtn .dot {
+        width: 96px; height: 96px; border-radius: 999px;
+        display:flex; align-items:center; justify-content:center;
+        border: 4px solid rgba(255,255,255,0.55);
+        background: rgba(255,255,255,0.04);
+      }
+      .actionBtn .dot { color: rgba(255,255,255,0.90); }
+      .actionBtn .dot svg { width: 40px; height: 40px; opacity: 0.98; }
+      .actionBtn .t { margin-top: 10px; font-size: 22px; }
+      .actionBtn[data-sec="ARM"] .dot { border-color: var(--c-total); color: var(--c-total); }
+      .actionBtn[data-sec="DISARM"] .dot { border-color: var(--c-disarm); color: var(--c-disarm); }
+      .actionBtn[data-sec="PARTIAL"] .dot { border-color: var(--c-partial); color: var(--c-partial); }
+      .scFilter {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.14);
+        background: rgba(0,0,0,0.28);
+        color: rgba(255,255,255,0.92);
+        outline: none;
+      }
+      .scRow {
+        display:flex;
+        align-items:center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 12px 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(255,255,255,0.04);
+        margin-top: 10px;
+      }
+      .scLeft { min-width: 0; }
+      .scName { font-size: 16px; color: rgba(255,255,255,0.92); white-space: nowrap; overflow: hidden; text-overflow: ellipsisipsis; }
+      .scMeta { font-size: 12px; color: rgba(255,255,255,0.58); margin-top: 4px; }
+      .pinCard {
+        width: 100%;
+        max-width: 520px;
+        box-sizing: border-box;
+        margin: 0 auto;
+        border-radius: 16px;
+        border: 1px solid rgba(255,255,255,0.10);
+        background: rgba(255,255,255,0.04);
+        padding: 14px 14px 12px;
+        overflow-x: hidden;
+      }
+      .pinDisplay {
+        margin-top: 10px;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.14);
+        background: rgba(0,0,0,0.28);
+        padding: 12px 14px;
+        font-size: 22px;
+        letter-spacing: 6px;
+        text-align: center;
+        color: rgba(255,255,255,0.92);
+        user-select: none;
+        cursor: text;
+      }
+      .keypad {
+        margin-top: 12px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .key {
+        border: 1px solid rgba(255,255,255,0.14);
+        background: rgba(255,255,255,0.06);
+        color: rgba(255,255,255,0.92);
+        padding: 12px 0;
+        border-radius: 14px;
+        font-size: 20px;
+        cursor: pointer;
+        width: 100%;
+      }
+      .key:active {
+        transform: scale(0.98);
+        background: rgba(255,255,255,0.10);
+      }
+      .pinRow {
+        margin-top: 10px;
+        display:flex;
+        justify-content: flex-end;
+        gap: 10px;
+      }
+      .pinErr {
+        margin-top: 10px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 80, 80, 0.35);
+        background: rgba(255, 80, 80, 0.10);
+        color: rgba(255,255,255,0.92);
+        padding: 10px 12px;
+        font-size: 13px;
+      }
+      @media (max-width: 820px) {
+        .center { gap: 18px; }
+        .sidebtn { width: 96px; }
+        .sidebtn .label { font-size: 18px; }
+        .ring { width: 260px; height: 260px; }
+        .ring .inner { width: 210px; height: 210px; }
+        .lock { width: 96px; height: 96px; }
+      }
+      @media (max-width: 560px) {
+        .center { flex-direction: column; gap: 14px; }
+        .sidebtn { width: auto; }
+        .sidebtn .label { font-size: 16px; }
+      }
+      @media (max-width: 520px) {
+        .modal { align-items: flex-end; }
+        .sheet {
+          width: 100%;
+          max-height: calc(100% - 8px);
+          border-radius: 16px 16px 0 0;
+        }
+        .sheetBody { padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+        .sheet.mode-menu { width: 100%; }
+        .sheet.mode-list { width: 100%; }
+        .sheet.mode-pin { width: 100%; }
+        .pinCard { padding: 12px 12px 10px; border-radius: 14px; }
+        .pinDisplay { font-size: 20px; padding: 10px 12px; }
+        .key { padding: 10px 0; font-size: 18px; }
+        .pinRow { justify-content: center; flex-wrap: wrap; }
+        .pinRow .btn { flex: 1 1 120px; text-align: center; }
+      }
+    </style>
+  </head>
+  <body class="loading">
+    <div class="bg"></div>
+    <button class="refreshBtn" id="refreshBtn" type="button" title="Aggiorna stato" aria-label="Aggiorna"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5a5 5 0 1 1-9.9-1H5.02a7 7 0 1 0 12.63-4.65z"/></svg></button>
+    <div id="splash" class="splash" aria-hidden="true">
+      <img src="/assets/logo_ekonex.png" alt="Ekonex"/>
+    </div>
+    <div class="topbar">
+      <a class="tab active" href="/security">Stato</a>
+      <a class="tab" href="/security/partitions">Partizioni</a>
+      <a class="tab" href="/security/sensors">Sensori</a>
+    </div>
+
+    <div class="wrap">
+      <div class="center">
+        <div class="sidebtn" id="btnEmergency">
+          <div class="icon" aria-hidden="true">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+              <path d="M12 2.5L1.8 20.5a1.2 1.2 0 0 0 1.05 1.8h18.3a1.2 1.2 0 0 0 1.05-1.8L12 2.5z" stroke="rgba(255,255,255,0.85)" stroke-width="1.6"/>
+              <path d="M12 8v6" stroke="rgba(255,255,255,0.85)" stroke-width="1.8" stroke-linecap="round"/>
+              <circle cx="12" cy="17.2" r="1.1" fill="rgba(255,255,255,0.85)"/>
+            </svg>
+          </div>
+          <div class="label">Emergenza</div>
+        </div>
+
+        <div class="main">
+          <div class="statusline" id="statusLine"></div>
+          <div class="ring" id="ring" title="Inserisci/Disinserisci/Parziale">
+            <div class="lock" id="lockIcon"></div>
+            <div class="addonVer" id="addonVer">v4.5.68</div>
+          </div>
+          <button class="alarmMem" id="alarmMem" type="button" title="Memoria allarme (dettagli)" aria-label="Memoria allarme" style="display:none;">
+            <img src="/assets/alarm" alt=""/>
+          </button>
+          <div class="scen" id="scenName"></div>
+          <div class="hint" id="hint"></div>
+        </div>
+
+        <div class="sidebtn" id="btnFunctions">
+          <div class="icon" aria-hidden="true">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+              <path d="M5 7h14" stroke="rgba(255,255,255,0.85)" stroke-width="1.8" stroke-linecap="round"/>
+              <path d="M5 12h14" stroke="rgba(255,255,255,0.85)" stroke-width="1.8" stroke-linecap="round"/>
+              <path d="M5 17h14" stroke="rgba(255,255,255,0.85)" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="label">Funzioni</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <div class="modal" id="modal">
+      <div class="sheet">
+        <div class="sheetHead">
+          <div class="sheetTitle" id="sheetTitle">Sicurezza</div>
+          <button class="btn" id="backBtn" style="display:none" type="button">Indietro</button>
+          <button class="btn" id="closeBtn" type="button">Chiudi</button>
+        </div>
+        <div class="sheetBody">
+          <div id="pinPane" style="display:none;">
+            <div class="pinCard">
+              <input class="scFilter" id="pinInput" type="password" autocomplete="off" placeholder="PIN" style="position:absolute; left:-9999px; width:1px; height:1px; opacity:0;" />
+              <div class="pinDisplay" id="pinDisplay">����</div>
+              <div class="keypad" id="pinKeypad">
+                <button class="key" type="button" data-k="1">1</button>
+                <button class="key" type="button" data-k="2">2</button>
+                <button class="key" type="button" data-k="3">3</button>
+                <button class="key" type="button" data-k="4">4</button>
+                <button class="key" type="button" data-k="5">5</button>
+                <button class="key" type="button" data-k="6">6</button>
+                <button class="key" type="button" data-k="7">7</button>
+                <button class="key" type="button" data-k="8">8</button>
+                <button class="key" type="button" data-k="9">9</button>
+                <button class="key" type="button" data-k="back">?</button>
+                <button class="key" type="button" data-k="0">0</button>
+                <button class="key" type="button" data-k="enter">OK</button>
+              </div>
+              <div class="pinErr" id="pinErr" style="display:none;"></div>
+            </div>
+          </div>
+          <div id="actionMenu" class="actionRow">
+            <button class="actionBtn" data-sec="ARM" type="button">
+              <div class="dot"><svg viewBox="0 0 24 24" fill="none"><path d="M12 2.8c2.8 2.1 5.9 2.5 8.2 2.7v6.9c0 4.7-3.1 8.1-8.2 8.8-5.1-.7-8.2-4.1-8.2-8.8V5.5c2.3-.2 5.4-.6 8.2-2.7z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9.2 12.2l2 2.1 3.7-4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+              <div class="t">inserisci</div>
+            </button>
+            <button class="actionBtn" data-sec="DISARM" type="button">
+              <div class="dot"><svg viewBox="0 0 24 24" fill="none"><path d="M8 10V8.2a4.8 4.8 0 0 1 9.2-1.9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M7.2 10.6h9.6A2.4 2.4 0 0 1 19.2 13v6.2a2.4 2.4 0 0 1-2.4 2.4H7.2A2.4 2.4 0 0 1 4.8 19.2V13a2.4 2.4 0 0 1 2.4-2.4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M10.4 16l1.6 1.7 3.2-3.6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+              <div class="t">disinserisci</div>
+            </button>
+            <button class="actionBtn" data-sec="PARTIAL" type="button">
+              <div class="dot"><svg viewBox="0 0 24 24" fill="none"><path d="M12 2.8c2.8 2.1 5.9 2.5 8.2 2.7v6.9c0 4.7-3.1 8.1-8.2 8.8-5.1-.7-8.2-4.1-8.2-8.8V5.5c2.3-.2 5.4-.6 8.2-2.7z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 7.2v11.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 12.2l4-2.3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
+              <div class="t">parziale</div>
+            </button>
+          </div>
+          <div id="scenarioPane" style="display:none;">
+            <input class="scFilter" id="scFilter" placeholder="Cerca scenario..." />
+            <div class="scList" id="scList"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const toast = document.getElementById('toast');
+      let toastTimer = null;
+      function setToast(msg, ms=3500) {
+        if (!toast) return;
+        toast.textContent = String(msg || '');
+        toast.style.display = 'block';
+        if (toastTimer) { try { clearTimeout(toastTimer); } catch (_e) {} }
+        toastTimer = setTimeout(() => {
+          toast.style.display = 'none';
+        }, Number(ms || 3500));
+      }
+
+      const SCENARIOS = [{"ID": 13, "DES": "Analisi Video ON", "CAT": "ARM"}, {"ID": 15, "DES": "Analisi Video ON", "CAT": "ARM"}, {"ID": 2, "DES": "Away", "CAT": "ARM"}, {"ID": 14, "DES": "Analisi Video OFF", "CAT": "DISARM"}, {"ID": 17, "DES": "Analisi Video OFF", "CAT": "DISARM"}, {"ID": 1, "DES": "Disinserito", "CAT": "DISARM"}, {"ID": 19, "DES": "Opera OFF ", "CAT": "DISARM"}, {"ID": 16, "DES": "Cancello comando", "CAT": "GEN"}, {"ID": 9, "DES": "LED ON/OFF", "CAT": "GEN"}, {"ID": 21, "DES": "Led Hight Mansarda OFF", "CAT": "GEN"}, {"ID": 20, "DES": "Led Hight Mansarda ON", "CAT": "GEN"}, {"ID": 11, "DES": "Portone Alex", "CAT": "GEN"}, {"ID": 23, "DES": "Portone DX ERGO X", "CAT": "GEN"}, {"ID": 12, "DES": "Portone Milly", "CAT": "GEN"}, {"ID": 24, "DES": "Portone SX ERGO X", "CAT": "GEN"}, {"ID": 10, "DES": "Portoni Chiusura Auto", "CAT": "GEN"}, {"ID": 18, "DES": "A Fumare", "CAT": "PARTIAL"}, {"ID": 8, "DES": "Ext+Porte", "CAT": "PARTIAL"}, {"ID": 4, "DES": "Ext.Parziale", "CAT": "PARTIAL"}, {"ID": 5, "DES": "IN Casa", "CAT": "PARTIAL"}, {"ID": 22, "DES": "In Ufficio", "CAT": "PARTIAL"}, {"ID": 3, "DES": "Notte", "CAT": "PARTIAL"}, {"ID": 6, "DES": "Notte+Mansarda", "CAT": "PARTIAL"}, {"ID": 7, "DES": "Solo Esterno", "CAT": "PARTIAL"}];
+
+      function scenarioFromSystem(sysRt) {
+        const arm = (sysRt && sysRt.ARM) ? sysRt.ARM : null;
+        if (!arm || typeof arm !== 'object') return {desc:'Sconosciuto', code:'?'};
+        return {desc: String(arm.D || 'Sconosciuto'), code: String(arm.S || '?')};
+      }
+      function systemStateLabel(code) {
+        const c = String(code || '').toUpperCase();
+        if (c === 'D' || c === 'DISARM' || c === 'DISINSERITO') return 'Sistema disinserito';
+        if (c === 'P' || c.startsWith('P_')) return 'Sistema parziale';
+        if (c === 'T' || c.startsWith('T_')) return 'Sistema inserito';
+        return 'Sistema';
+      }
+      function isArmed(code) {
+        const c = String(code || '').toUpperCase();
+        return !(c === 'D' || c === 'DISARM' || c === 'DISINSERITO');
+      }
+      let lastEntities = [];
+      let lastSystem = null;
+      const delayState = {
+        active: false,
+        kind: '',
+        total: 0,
+        baseRem: 0,
+        baseAt: 0,
+        label: '',
+        color: '#f92028',
+        fetchedAtZero: 0,
+      };
+
+      function parsePartitionSeconds(raw) {
+        if (raw === null || raw === undefined) return 0;
+        if (typeof raw === 'number' && Number.isFinite(raw)) {
+          if (Math.floor(raw) === raw) return Math.max(0, raw);
+          const s = String(raw);
+          if (s.includes('.')) {
+            const parts = s.split('.');
+            const mm = Number(parts[0] || '0');
+            const ss = Number(parts[1] || '0');
+            if (Number.isFinite(mm) && Number.isFinite(ss) && ss >= 0 && ss < 60) return Math.max(0, mm * 60 + ss);
+          }
+          return Math.max(0, Math.round(raw));
+        }
+        const s = String(raw).trim();
+        if (!s) return 0;
+        if (s.includes(':')) {
+          const nums = s.split(':').map(p => Number(p));
+          if (nums.some(n => !Number.isFinite(n))) return 0;
+          if (nums.length === 2) return Math.max(0, nums[0] * 60 + nums[1]);
+          if (nums.length === 3) return Math.max(0, nums[0] * 3600 + nums[1] * 60 + nums[2]);
+        }
+        if (s.includes('.')) {
+          const parts = s.split('.');
+          const mm = Number(parts[0] || '0');
+          const ss = Number(parts[1] || '0');
+          if (Number.isFinite(mm) && Number.isFinite(ss) && ss >= 0 && ss < 60) return Math.max(0, mm * 60 + ss);
+        }
+        const n = Number(s);
+        if (Number.isFinite(n)) return Math.max(0, Math.round(n));
+        return 0;
+      }
+
+      function maxPartitionSeconds(entities) {
+        let mx = 0;
+        for (const e of (entities || [])) {
+          if (!e || String(e.type || '').toLowerCase() !== 'partitions') continue;
+          const rt = (e.realtime && typeof e.realtime === 'object') ? e.realtime : {};
+          const raw = rt.T ?? rt.TIME ?? 0;
+          const n = parsePartitionSeconds(raw);
+          if (Number.isFinite(n) && n > mx) mx = n;
+        }
+        return mx;
+      }
+
+      function isDelayCode(code) {
+        const c = String(code || '').toUpperCase();
+        return c.endsWith('_OUT') || c.endsWith('_IN');
+      }
+
+      function updateDelayState(code, entities) {
+        const c = String(code || '').toUpperCase();
+        const delay = isDelayCode(c);
+        if (!delay) {
+          delayState.active = false;
+          delayState.kind = '';
+          delayState.total = 0;
+          delayState.baseRem = 0;
+          delayState.baseAt = 0;
+          delayState.fetchedAtZero = 0;
+          return;
+        }
+        const kind = c.endsWith('_OUT') ? 'OUT' : 'IN';
+        const reportedRem = Math.max(0, Math.ceil(maxPartitionSeconds(entities)));
+        const now = Date.now();
+
+        if (!delayState.active || delayState.kind !== kind) {
+          delayState.active = true;
+          delayState.kind = kind;
+          delayState.total = reportedRem;
+          delayState.baseRem = reportedRem;
+          delayState.baseAt = now;
+        } else {
+          // NOTE: Ksenia might not stream the countdown every second; we "count down"
+          // locally between updates. To keep it linear, only resync when the panel
+          // provides a *lower* remaining time (or on a clear jump).
+          if (reportedRem > 0) {
+            if (delayState.total <= 0) delayState.total = reportedRem;
+            if (reportedRem > delayState.total) delayState.total = reportedRem;
+
+            const cur = Number(delayState.baseRem || 0);
+            // Resync when remaining decreases (normal case)
+            if (cur <= 0 || reportedRem < (cur - 0.5)) {
+              delayState.baseRem = reportedRem;
+              delayState.baseAt = now;
+            }
+            // If remaining suddenly increases a lot, treat as a new delay start
+            else if (reportedRem > (cur + 5)) {
+              delayState.baseRem = reportedRem;
+              delayState.baseAt = now;
+              if (delayState.total < reportedRem) delayState.total = reportedRem;
+            }
+          }
+        }
+
+        const isPartial = (c.startsWith('P_') || c === 'P_OUT' || c === 'P_IN');
+        delayState.color = isPartial ? '#0000FF' : '#f92028';
+        delayState.label = (kind === 'OUT') ? "Tempo d'uscita" : "Tempo d'ingresso";
+      }
+
+      function renderDelayUI() {
+        const ring = document.getElementById('ring');
+        const lock = document.getElementById('lockIcon');
+        if (!delayState.active) {
+          if (ring) {
+            ring.classList.remove('delay');
+            ring.style.removeProperty('--p');
+            ring.style.removeProperty('--ring-color');
+          }
+          delayState.fetchedAtZero = 0;
+          try { setDelayPolling(false); } catch (_e) {}
+          return;
+        }
+        const now = Date.now();
+        const elapsed = Math.max(0, (now - (delayState.baseAt || now)) / 1000);
+        const rem = Math.max(0, Math.ceil((delayState.baseRem || 0) - elapsed));
+        const total = Math.max(1, Math.ceil(delayState.total || rem || 1));
+        let p = 0;
+        if (delayState.kind === 'OUT') p = 1 - (rem / total);
+        else p = (rem / total);
+        if (!Number.isFinite(p)) p = 0;
+        p = Math.max(0, Math.min(1, p));
+        if (ring) {
+          ring.classList.add('delay');
+          ring.style.setProperty('--p', String(p));
+          ring.style.setProperty('--ring-color', delayState.color);
+        }
+        if (lock) {
+          lock.textContent = '';
+          const t = document.createElement('div');
+          t.className = 'lockText';
+          t.textContent = String(rem);
+          lock.appendChild(t);
+        }
+
+        // Watchdog: if we somehow stay in delay longer than expected, force a resync.
+        if (delayState.baseAt && delayState.total && elapsed > (delayState.total + 8)) {
+          delayState.active = false;
+          delayState.fetchedAtZero = 0;
+          try { setDelayPolling(false); } catch (_e) {}
+          try { setTimeout(fetchSnap, 80); } catch (_e) {}
+          return;
+        }
+
+        // When the local countdown reaches 0, force a snapshot to swap back to the icon
+        // even if the panel does not emit a final realtime update.
+        if (rem === 0) {
+          if (!delayState.fetchedAtZero || (now - delayState.fetchedAtZero) > 1500) {
+            delayState.fetchedAtZero = now;
+            try { setTimeout(fetchSnap, 120); } catch (_e) {}
+          }
+        } else {
+          delayState.fetchedAtZero = 0;
+        }
+      }
+
+      setInterval(() => {
+        if (delayState.active) renderDelayUI();
+      }, 250);
+
+      let pollTimer = null;
+      let delayPollTimer = null;
+      function setDelayPolling(on) {
+        if (on) {
+          if (!delayPollTimer) delayPollTimer = setInterval(fetchSnap, 900);
+        } else {
+          if (delayPollTimer) {
+            try { clearInterval(delayPollTimer); } catch (_e) {}
+            delayPollTimer = null;
+          }
+        }
+      }
+
+      function applySystem(s, entities) {
+        const scen = scenarioFromSystem(s);
+        const code = String(scen.code || '').toUpperCase();
+        const entList = Array.isArray(entities) ? entities : [];
+        const useEntities = entList.length ? entList : lastEntities;
+        const ring = document.getElementById('ring');
+        if (ring) {
+          ring.classList.remove('state-disarm','state-total','state-partial');
+          if (code === 'D' || code === 'DISARM' || code === 'DISINSERITO') ring.classList.add('state-disarm');
+          else if (code === 'P' || code.startsWith('P_')) ring.classList.add('state-partial');
+          else if (code === 'T' || code.startsWith('T_')) ring.classList.add('state-total');
+        }
+        function alarmActive(sys, entities) {
+          // "ALARM" from STATUS_SYSTEM is not always populated; active alarm can also be inferred from zones (STA == 'A').
+          if (sys) {
+            const a = sys.ALARM;
+            if (typeof a === 'string') {
+              if (a.trim() !== '') return true;
+            }
+            if (Array.isArray(a)) {
+              return a.length > 0;
+            }
+            if (a && typeof a === 'object') {
+              if (Object.keys(a).length > 0) return true;
+              for (const v of Object.values(a)) {
+                if (Array.isArray(v) && v.length > 0) return true;
+                if (v && typeof v === 'object') {
+                  for (const vv of Object.values(v)) {
+                    if (Array.isArray(vv) && vv.length > 0) return true;
+                  }
+                }
+              }
+            }
+          }
+          if (!Array.isArray(entities)) return false;
+          for (const e of entities) {
+            if (String(e.type || '').toLowerCase() !== 'partitions') continue;
+            const rt = (e.realtime && typeof e.realtime === 'object') ? e.realtime : {};
+            const ast = String(rt.AST || '').toUpperCase();
+            const arm = String(rt.ARM || '').toUpperCase();
+            if (ast === 'AL' || ast === 'ALARM') return true;
+            if (arm === 'AL' || arm === 'ALARM') return true;
+          }
+          for (const e of entities) {
+            if (String(e.type || '').toLowerCase() !== 'zones') continue;
+            const rt = (e.realtime && typeof e.realtime === 'object') ? e.realtime : {};
+            const sta = String(rt.STA || '').toUpperCase();
+            if (sta === 'A') return true;
+          }
+          return false;
+        }
+        function alarmMemActive(sys) {
+          if (!sys) return false;
+          const a = sys.ALARM_MEM;
+          if (Array.isArray(a)) {
+            return a.length > 0;
+          }
+          if (a && typeof a === 'object') {
+            for (const v of Object.values(a)) {
+              if (Array.isArray(v) && v.length > 0) return true;
+              if (v && typeof v === 'object') {
+                for (const vv of Object.values(v)) {
+                  if (Array.isArray(vv) && vv.length > 0) return true;
+                }
+              }
+            }
+          }
+          return false;
+        }
+
+        if (entList.length) lastEntities = entList;
+        lastSystem = s || null;
+        updateDelayState(code, useEntities);
+        setDelayPolling(delayState.active);
+        const inAlarmMem = alarmMemActive(s);
+        const inAlarmRaw = alarmActive(s, useEntities);
+        const isDisarmed = (code === 'D' || code === 'DISARM' || code === 'DISINSERITO');
+        const inAlarm = (!isDisarmed && inAlarmRaw);
+        const icon = inAlarm
+          ? '/assets/alarm'
+          : (code === 'D' || code === 'DISARM' || code === 'DISINSERITO')
+            ? '/assets/disarm'
+            : (code === 'P' || code.startsWith('P_'))
+              ? '/assets/partial'
+              : (code === 'T' || code.startsWith('T_'))
+                ? '/assets/arm'
+                : '/assets/arm';
+        const lock = document.getElementById('lockIcon');
+        const verEl = document.getElementById('addonVer');
+        const memEl = document.getElementById('alarmMem');
+        if (verEl) verEl.style.display = delayState.active ? 'none' : 'block';
+        if (memEl) memEl.style.display = inAlarmMem ? 'inline-flex' : 'none';
+        if (lock) {
+          const wantAlarm = inAlarm ? '1' : '0';
+          const wantSrc = String(icon || '');
+          const curAlarm = lock.dataset.alarm || '0';
+          const curSrc = lock.dataset.src || '';
+
+          // Avoid flicker: only touch DOM when icon/alarm state changes.
+          if (delayState.active) {
+            // During delays we show remaining seconds instead of icon.
+            lock.textContent = '';
+            lock.dataset.alarm = '0';
+            lock.dataset.src = '';
+          } else if (curAlarm !== wantAlarm || curSrc !== wantSrc || !lock.firstElementChild) {
+            lock.textContent = '';
+            const img = document.createElement('img');
+            img.className = 'lockImg' + (inAlarm ? ' alarm' : '');
+            img.alt = '';
+            img.src = wantSrc;
+            lock.appendChild(img);
+            lock.dataset.alarm = wantAlarm;
+            lock.dataset.src = wantSrc;
+          } else {
+            // Ensure class is coherent even if DOM was modified elsewhere.
+            const img = lock.firstElementChild;
+            if (img) img.className = 'lockImg' + (inAlarm ? ' alarm' : '');
+          }
+        }
+        document.getElementById('statusLine').textContent = delayState.active ? delayState.label : systemStateLabel(code);
+        const scenEl = document.getElementById('scenName');
+        if (scenEl) scenEl.textContent = (scen.desc || '');
+        renderDelayUI();
+      }
+
+      // Splash: show logo for ~2�3s while we sync state.
+      const splash = document.getElementById('splash');
+      const splashStart = Date.now();
+      let splashHidden = false;
+      function hideSplash() {
+        if (!splash || splashHidden) return;
+        const elapsed = Date.now() - splashStart;
+        const wait = Math.max(0, 2400 - elapsed);
+        setTimeout(() => {
+          if (!splash || splashHidden) return;
+          splashHidden = true;
+          document.body.classList.remove('loading');
+          splash.classList.add('hide');
+          setTimeout(() => { try { splash.remove(); } catch (_e) {} }, 500);
+        }, wait);
+      }
+      setTimeout(hideSplash, 3000);
+
+      let lastWs1Ok = null;
+      let ws1ReconnectInFlight = false;
+
+      async function reconnectWs1() {
+        if (ws1ReconnectInFlight) return;
+        ws1ReconnectInFlight = true;
+        try {
+          await fetch('/api/cmd', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'ws', action: 'reconnect_main' }),
+          });
+        } catch (_e) {
+          /* no-op */
+        } finally {
+          ws1ReconnectInFlight = false;
+        }
+      }
+
+      function handleWs1Meta(meta) {
+        const ok = !!(meta && meta.ws1_connected);
+        if (lastWs1Ok === null) {
+          lastWs1Ok = ok;
+          return;
+        }
+        if (ok === lastWs1Ok) return;
+        lastWs1Ok = ok;
+        if (!ok) {
+          setToast('Connessione centrale persa, provo a riconnettere...');
+          reconnectWs1();
+        } else {
+          setToast('Riconnesso alla centrale');
+        }
+      }
+
+      async function fetchSnap() {
+        if (fetchSnap._inFlight) return;
+        fetchSnap._inFlight = true;
+        try {
+          const res = await fetch('/api/entities', {cache:'no-store'});
+          const snap = await res.json();
+          handleWs1Meta(snap && snap.meta);
+          const sys = (snap.entities || []).find(e => String(e.type||'') === 'systems');
+          applySystem((sys && sys.realtime) ? sys.realtime : (sys && sys.static) ? sys.static : null, snap.entities || []);
+          hideSplash();
+          lastApplyAt = Date.now();
+          setRefreshStale(false);
+        } catch (e) {
+          setToast('Errore lettura stato: ' + e);
+        } finally {
+          fetchSnap._inFlight = false;
+        }
+      }
+
+      let sse = null;
+      let sseRetryTimer = null;
+      let lastApplyAt = 0;
+      const refreshBtn = document.getElementById('refreshBtn');
+
+      function setRefreshStale(v) { if (!refreshBtn) return; refreshBtn.classList.toggle('stale', !!v); }
+      function startPolling(intervalMs) {
+        if (pollTimer) {
+          try { clearInterval(pollTimer); } catch (_e) {}
+          pollTimer = null;
+        }
+        if (intervalMs && intervalMs > 0) pollTimer = setInterval(fetchSnap, intervalMs);
+      }
+      function startSSE() {
+        if (!window.EventSource) return false;
+        if (sse) return true;
+        try { sse = new EventSource('/api/stream'); } catch (_e) { sse = null; return false; }
+        sse.onopen = () => {
+          startPolling(0);
+          setRefreshStale(false);
+        };
+        sse.onmessage = (ev) => {
+          try {
+            const msg = JSON.parse(ev.data || '{}');
+            const ents = msg.entities || [];
+            if (msg.meta) handleWs1Meta(msg.meta);
+            const sys = (ents || []).find(e => String(e.type||'') === 'systems');
+            if (sys) {
+              applySystem(sys.realtime || sys.static || null, ents || []);
+              hideSplash();
+              lastApplyAt = Date.now();
+            } else {
+              // Some updates may not include the system entity; fall back to a full snapshot.
+              fetchSnap();
+            }
+          } catch (_e) {}
+        };
+        sse.onerror = () => {
+          try { if (sse) sse.close(); } catch (_e) {}
+          sse = null;
+          setRefreshStale(true);
+          // Force a resync soon (helps when WS reconnects server-side).
+          fetchSnap();
+          startPolling(2500);
+          if (sseRetryTimer) return;
+          sseRetryTimer = setTimeout(() => {
+            sseRetryTimer = null;
+            startSSE();
+          }, 2000);
+        };
+        return true;
+      }
+      startPolling(2500);
+      startSSE();
+      fetchSnap();
+
+      // Watchdog: if UI hasn't received updates for a while, force a refresh.
+      setInterval(() => {
+        if (document.hidden) return;
+        const age = Date.now() - (lastApplyAt || 0);
+        const stale = age > 8000;
+        setRefreshStale(stale);
+        if (stale) fetchSnap();
+      }, 1000);
+
+      window.addEventListener('focus', () => fetchSnap());
+      if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+          setRefreshStale(false);
+          fetchSnap();
+        });
+      }
+
+      function alarmCauseFromLogs(entities) {
+        if (!Array.isArray(entities)) return null;
+        let best = null;
+        let bestTs = 0;
+        for (const e of entities) {
+          if (String(e.type || '').toLowerCase() !== 'logs') continue;
+          const rt = (e.realtime && typeof e.realtime === 'object') ? e.realtime : {};
+          const typ = String(rt.TYPE || '').toUpperCase();
+          const ev = String(rt.EV || '');
+          const evLower = ev.toLowerCase();
+          const isAlarmType = (typ === 'ZALARM' || typ === 'ALARM');
+          const isAlarmEvent = evLower.includes('allarme zona');
+          const isTiming = evLower.includes("tempo d'uscita") || evLower.includes("tempo d'ingresso");
+          const isAlarm = (isAlarmType || isAlarmEvent) && !isTiming;
+          if (!isAlarm) continue;
+          const ts = Number(e.last_seen || 0);
+          if (ts >= bestTs) {
+            bestTs = ts;
+            best = rt;
+          }
+        }
+        return best;
+      }
+
+      function isAlarmResetLog(rt) {
+        const typ = String(rt.TYPE || '').toUpperCase();
+        const ev = String(rt.EV || '').toLowerCase();
+        if (typ.includes('RESET')) return true;
+        if (ev.includes('reset allarmi')) return true;
+        if (ev.includes('reset allarme')) return true;
+        if (ev.includes('reset memoria')) return true;
+        if (ev.includes('ripristino memoria')) return true;
+        return false;
+      }
+
+      function alarmEventsSinceReset(entities) {
+        if (!Array.isArray(entities)) return [];
+        const logs = [];
+        for (const e of entities) {
+          if (String(e.type || '').toLowerCase() !== 'logs') continue;
+          const rt = (e.realtime && typeof e.realtime === 'object') ? e.realtime : {};
+          const typ = String(rt.TYPE || '').toUpperCase();
+          const ev = String(rt.EV || '');
+          const evLower = ev.toLowerCase();
+          const isAlarmType = (typ === 'ZALARM' || typ === 'ALARM');
+          const isAlarmEvent = evLower.includes('allarme zona');
+          const isTiming = evLower.includes("tempo d'uscita") || evLower.includes("tempo d'ingresso");
+          if ((isAlarmType || isAlarmEvent) && !isTiming) {
+            logs.push({ ts: Number(e.last_seen || 0), rt });
+          }
+        }
+        if (!logs.length) return [];
+        let resetTs = 0;
+        for (const e of entities) {
+          if (String(e.type || '').toLowerCase() !== 'logs') continue;
+          const rt = (e.realtime && typeof e.realtime === 'object') ? e.realtime : {};
+          if (!isAlarmResetLog(rt)) continue;
+          const ts = Number(e.last_seen || 0);
+          if (ts > resetTs) resetTs = ts;
+        }
+        const out = logs
+          .filter(x => !resetTs || x.ts >= resetTs)
+          .sort((a, b) => (a.ts || 0) - (b.ts || 0))
+          .map(x => x.rt);
+        return out;
+      }
+
+      function alarmCauseFromZones(entities) {
+        if (!Array.isArray(entities)) return null;
+        const zones = [];
+        for (const e of entities) {
+          if (String(e.type || '').toLowerCase() !== 'zones') continue;
+          const rt = (e.realtime && typeof e.realtime === 'object') ? e.realtime : {};
+          const sta = String(rt.STA || '').toUpperCase();
+          if (sta !== 'A') continue;
+          const st = (e.static && typeof e.static === 'object') ? e.static : {};
+          const name = String(e.name || st.DES || ('Zona ' + String(e.id || '')));
+          zones.push(name);
+        }
+        if (!zones.length) return null;
+        return 'Zone in allarme: ' + zones.join(', ');
+      }
+
+      function alarmCauseText() {
+        const list = alarmEventsSinceReset(lastEntities);
+        if (list.length) {
+          if (list.length === 1) {
+            const log = list[0];
+            const when = [log.DATA, log.TIME].filter(Boolean).join(' ');
+            const ev = String(log.EV || '').trim();
+            const i1 = String(log.I1 || '').trim();
+            const i2 = String(log.I2 || '').trim();
+            const parts = [];
+            if (when) parts.push(when);
+            if (ev) parts.push(ev);
+            if (i1) parts.push(i1);
+            if (i2) parts.push(i2);
+            return parts.join(' - ') || 'Memoria allarme attiva';
+          }
+          const lines = list.map((log) => {
+            const when = [log.DATA, log.TIME].filter(Boolean).join(' ');
+            const ev = String(log.EV || '').trim();
+            const i1 = String(log.I1 || '').trim();
+            const parts = [];
+            if (when) parts.push(when);
+            if (ev) parts.push(ev);
+            if (i1) parts.push(i1);
+            return parts.join(' - ') || 'Allarme zona';
+          });
+          return lines.join('\n');
+        }
+        const zoneText = alarmCauseFromZones(lastEntities);
+        if (zoneText) return zoneText;
+        return 'Memoria allarme attiva';
+      }
+
+      const alarmMemBtn = document.getElementById('alarmMem');
+      if (alarmMemBtn) {
+        alarmMemBtn.addEventListener('click', () => {
+          const msg = alarmCauseText();
+          if (msg.includes('
+')) {
+            try { alert(msg); } catch (_e) {}
+            setToast('Allarmi: ' + String(msg.split('
+').length));
+          } else {
+            setToast(msg);
+          }
+        });
+      }
+
+      // PIN session (same model as index_debug)
+      const PIN_TOKEN_KEY = 'ksenia_pin_session_token';
+      const PIN_EXP_KEY = 'ksenia_pin_session_expires_at';
+      function getPinSessionToken() {
+        try {
+          const token = localStorage.getItem(PIN_TOKEN_KEY) || '';
+          const expRaw = localStorage.getItem(PIN_EXP_KEY) || '';
+          const exp = Number(expRaw || '0');
+          if (!token) return null;
+          if (!exp || Date.now() >= exp * 1000) {
+            localStorage.removeItem(PIN_TOKEN_KEY);
+            localStorage.removeItem(PIN_EXP_KEY);
+            return null;
+          }
+          return token;
+        } catch (_e) { return null; }
+      }
+      async function startPinSession(pin, minutes=5) {
+        const payload = { type: 'session', action: 'start', value: { pin: String(pin || ''), minutes: Number(minutes || 5) } };
+        const res = await fetch('/api/cmd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const txt = await res.text();
+        let data = null;
+        try { data = JSON.parse(txt); } catch (_e) {}
+        if (!res.ok || !data || !data.ok) throw new Error((data && data.error) ? data.error : txt);
+        try {
+          localStorage.setItem(PIN_TOKEN_KEY, String(data.token || ''));
+          localStorage.setItem(PIN_EXP_KEY, String(data.expires_at || ''));
+        } catch (_e) {}
+        return String(data.token || '');
+      }
+      let pinFlow = null; // { promise, resolve, reject, prevMode, prevSecCat }
+      function cancelPinFlow(reason) {
+        if (!pinFlow) return;
+        try { pinFlow.reject(reason || new Error('PIN annullato')); } catch (_e) {}
+        pinFlow = null;
+      }
+      function showPinError(msg) {
+        const pinErr = document.getElementById('pinErr');
+        if (!pinErr) return;
+        pinErr.textContent = String(msg || 'Errore');
+        pinErr.style.display = '';
+      }
+      function hidePinError() {
+        const pinErr = document.getElementById('pinErr');
+        if (!pinErr) return;
+        pinErr.textContent = '';
+        pinErr.style.display = 'none';
+      }
+      function openPinPane() {
+        if (pinFlow && pinFlow.promise) return pinFlow.promise;
+        const pinPane = document.getElementById('pinPane');
+        const pinInput = document.getElementById('pinInput');
+        const pinDisplay = document.getElementById('pinDisplay');
+        const pinKeypad = document.getElementById('pinKeypad');
+        const sheetTitle = document.getElementById('sheetTitle');
+        const backBtn = document.getElementById('backBtn');
+        const actionMenu = document.getElementById('actionMenu');
+        const scenarioPane = document.getElementById('scenarioPane');
+        const modalEl = document.getElementById('modal');
+
+        const prevMode = typeof modalMode === 'string' ? modalMode : 'SEC_MENU';
+        const prevSecCat = typeof secCat === 'string' ? secCat : 'ARM';
+
+        pinFlow = { promise: null, resolve: null, reject: null, prevMode, prevSecCat };
+        pinFlow.promise = new Promise((resolve, reject) => { pinFlow.resolve = resolve; pinFlow.reject = reject; });
+
+        hidePinError();
+        try { setSheetMode('pin'); } catch (_e) {}
+        if (pinPane) pinPane.style.display = '';
+        if (actionMenu) actionMenu.style.display = 'none';
+        if (scenarioPane) scenarioPane.style.display = 'none';
+        if (sheetTitle) sheetTitle.textContent = '';
+        if (backBtn) backBtn.style.display = 'none';
+        if (modalEl) modalEl.classList.add('show');
+        let pinValue = '';
+        let revealTimer = null;
+        function maskForDisplay(value, revealLast) {
+          const s = String(value || '');
+          if (!s) return '����';
+          if (revealLast && s.length >= 1) {
+            return '�'.repeat(Math.max(0, s.length - 1)) + s.slice(-1);
+          }
+          return '�'.repeat(s.length);
+        }
+        function setPinValue(next, revealLast) {
+          pinValue = String(next || '').replace(/\D/g, '').slice(0, 12);
+          if (pinInput) pinInput.value = pinValue;
+          if (pinDisplay) pinDisplay.textContent = maskForDisplay(pinValue, !!revealLast);
+          if (revealTimer) { try { clearTimeout(revealTimer); } catch (_e) {} }
+          if (revealLast && pinValue) {
+            revealTimer = setTimeout(() => {
+              if (pinDisplay) pinDisplay.textContent = maskForDisplay(pinValue, false);
+            }, 1000);
+          }
+        }
+        setPinValue('', false);
+        if (pinInput) {
+          // Prevent OS keyboard: never focus the hidden input, only keep it for autofill/pass managers if any.
+          pinInput.oninput = () => {
+            const v = String(pinInput.value || '');
+            setPinValue(v, true);
+          };
+          pinInput.onkeydown = (ev) => {
+            if (ev && ev.key === 'Enter') doOk();
+          };
+        }
+        if (pinDisplay) {
+          pinDisplay.onclick = () => { /* no-op: avoid OS keyboard */ };
+        }
+        if (pinKeypad) {
+          for (const b of pinKeypad.querySelectorAll('button[data-k]')) {
+            b.onclick = () => {
+              const k = String(b.getAttribute('data-k') || '');
+              if (k === 'back') {
+                setPinValue(pinValue.slice(0, -1), false);
+                return;
+              }
+              if (k === 'enter') { doOk(); return; }
+              if (/^\d$/.test(k)) {
+                setPinValue(pinValue + k, true);
+              }
+            };
+          }
+        }
+
+        async function doOk() {
+          const pin = String(pinValue || (pinInput ? pinInput.value : '') || '').trim();
+          if (!pin) { showPinError('Inserisci il PIN'); return; }
+          hidePinError();
+          try {
+            const token = await startPinSession(pin, 5);
+            const restoreMode = pinFlow ? pinFlow.prevMode : prevMode;
+            const restoreCat = pinFlow ? pinFlow.prevSecCat : prevSecCat;
+            if (pinPane) pinPane.style.display = 'none';
+            if (restoreMode === 'SEC_LIST') openSecurityList(restoreCat);
+            else if (restoreMode === 'HOME_LIST') openSmarthomeList();
+            else openSecurityMenu();
+            if (pinFlow && pinFlow.resolve) pinFlow.resolve(token);
+            pinFlow = null;
+          } catch (e) {
+            const emsg = (e && e.message ? e.message : e) || 'errore sconosciuto';
+            showPinError('PIN non valido o errore: ' + emsg);
+          }
+        }
+        return pinFlow.promise;
+      }
+      async function ensurePinSession() {
+        const existing = getPinSessionToken();
+        if (existing) return existing;
+        return await openPinPane();
+      }
+      async function sendCmd(type, id, action) {
+        const payload = { type: String(type), id: Number(id), action: String(action) };
+        const token = getPinSessionToken();
+        if (token) payload.token = token;
+        const res = await fetch('/api/cmd', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const text = await res.text();
+        let data = null;
+        try { data = JSON.parse(text); } catch (_e) {}
+        const errRaw = data && data.error !== undefined ? String(data.error) : '';
+        const err = errRaw.trim().toLowerCase();
+        const needsPin = (
+          err === 'pin_session_required' ||
+          err === 'invalid_token' ||
+          err === 'login_failed' ||
+          (data && data.ok === false && err === '')
+        );
+        if (needsPin) {
+          try { localStorage.removeItem(PIN_TOKEN_KEY); localStorage.removeItem(PIN_EXP_KEY); } catch (_e) {}
+          try {
+            await ensurePinSession();
+          } catch (e) {
+            const emsg = (e && e.message) ? e.message : String(e || 'PIN non valido');
+            setToast('PIN non valido: ' + emsg);
+            return { ok: false, text: emsg, data: { ok: false, error: emsg } };
+          }
+          return await sendCmd(type, id, action);
+        }
+        return { ok: res.ok, text, data };
+      }
+
+      // Modal / scenario selection
+      const modal = document.getElementById('modal');
+      const sheet = document.querySelector('#modal .sheet');
+      const sheetTitle = document.getElementById('sheetTitle');
+      const backBtn = document.getElementById('backBtn');
+      const closeBtn = document.getElementById('closeBtn');
+      const actionMenu = document.getElementById('actionMenu');
+      const scenarioPane = document.getElementById('scenarioPane');
+      const scFilter = document.getElementById('scFilter');
+      const scList = document.getElementById('scList');
+
+      let modalMode = 'SEC_MENU'; // SEC_MENU | SEC_LIST | HOME_LIST
+      let secCat = 'ARM';
+
+      function setSheetMode(mode) {
+        if (!sheet) return;
+        sheet.classList.remove('mode-menu', 'mode-list', 'mode-pin');
+        sheet.classList.add('mode-' + String(mode || 'menu'));
+      }
+
+      function isSecurityCat(cat) {
+        const c = String(cat || '').toUpperCase();
+        return (c === 'ARM' || c === 'DISARM' || c === 'PARTIAL');
+      }
+
+      function openSecurityMenu() {
+        modalMode = 'SEC_MENU';
+        setSheetMode('menu');
+        sheetTitle.textContent = '';
+        backBtn.style.display = 'none';
+        actionMenu.style.display = 'flex';
+        scenarioPane.style.display = 'none';
+        scFilter.value = '';
+        scList.innerHTML = '';
+      }
+      async function ensureScenariosLoaded() {
+        try {
+          if (Array.isArray(SCENARIOS) && SCENARIOS.length > 0) return true;
+          const res = await fetch('/api/entities', { cache:'no-store' });
+          if (!res.ok) return false;
+          const snap = await res.json();
+          const next = [];
+          for (const e of (snap.entities || [])) {
+            if (String(e.type || '').toLowerCase() !== 'scenarios') continue;
+            const st = (e.static && typeof e.static === 'object') ? e.static : {};
+            const sid = Number(e.id);
+            if (!Number.isFinite(sid)) continue;
+            const des = String(st.DES || e.name || ('Scenario ' + sid));
+            const cat = String(st.CAT || '').trim().toUpperCase();
+            next.push({ ID: sid, DES: des, CAT: cat });
+          }
+          next.sort((a,b) => (String(a.CAT||'').localeCompare(String(b.CAT||'')) || String(a.DES||'').localeCompare(String(b.DES||''))));
+          if (Array.isArray(SCENARIOS)) {
+            SCENARIOS.length = 0;
+            for (const it of next) SCENARIOS.push(it);
+          }
+          return SCENARIOS.length > 0;
+        } catch (_e) {
+          return false;
+        }
+      }
+
+      function openSecurityList(cat) {
+        modalMode = 'SEC_LIST';
+        secCat = String(cat || 'ARM').toUpperCase();
+        setSheetMode('list');
+        sheetTitle.textContent = (secCat === 'DISARM') ? 'Disinserisci' : (secCat === 'PARTIAL') ? 'Parziale' : 'Inserisci';
+        backBtn.style.display = '';
+        actionMenu.style.display = 'none';
+        scenarioPane.style.display = '';
+        scFilter.value = '';
+        renderScenarioList('');
+      }
+      function openSmarthomeList() {
+        modalMode = 'HOME_LIST';
+        setSheetMode('list');
+        sheetTitle.textContent = 'Smarthome';
+        backBtn.style.display = 'none';
+        actionMenu.style.display = 'none';
+        scenarioPane.style.display = '';
+        scFilter.value = '';
+        renderScenarioList('');
+      }
+
+      function renderScenarioList(q) {
+        const needle = String(q||'').toLowerCase();
+        let items = SCENARIOS;
+        if (modalMode === 'SEC_LIST') items = items.filter(s => String(s.CAT||'').toUpperCase() === secCat);
+        if (modalMode === 'HOME_LIST') items = items.filter(s => !isSecurityCat(s.CAT));
+        items = items.filter(s => String(s.DES||'').toLowerCase().includes(needle));
+        scList.innerHTML = items.map(s => `
+          <div class="scRow">
+            <div class="scLeft">
+              <div class="scName">${escapeHtml(s.DES)}</div>
+              <div class="scMeta">ID ${escapeHtml(String(s.ID))} &middot; ${escapeHtml(String(s.CAT||''))}</div>
+            </div>
+            <button class="btn" data-sid="${escapeHtml(String(s.ID))}" type="button">Esegui</button>
+          </div>
+        `).join('') || '<div class="muted">Nessuno scenario</div>';
+        for (const btn of scList.querySelectorAll('button[data-sid]')) {
+          btn.addEventListener('click', async (ev) => {
+            const sid = Number(ev.currentTarget.getAttribute('data-sid'));
+            setToast('Eseguo scenario ' + sid + '...');
+            const res = await sendCmd('scenarios', sid, 'execute');
+            setToast(res.ok ? 'OK' : ('Errore: ' + res.text));
+            try { setTimeout(fetchSnap, 150); } catch (_e) {}
+            modal.classList.remove('show');
+          });
+        }
+      }
+
+      function escapeHtml(s) {
+        return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]||c));
+      }
+
+      function closeModal() {
+        if (pinFlow) {
+          try { cancelPinFlow(new Error('Modal chiusa')); } catch (_e) {}
+          try { document.getElementById('pinPane').style.display = 'none'; } catch (_e) {}
+        }
+        try { setSheetMode('menu'); } catch (_e) {}
+        modal.classList.remove('show');
+      }
+
+      document.getElementById('ring').addEventListener('click', () => { modal.classList.add('show'); openSecurityMenu(); });
+      document.getElementById('btnFunctions').addEventListener('click', async () => {
+        modal.classList.add('show');
+        await ensureScenariosLoaded();
+        openSmarthomeList();
+      });
+      closeBtn.addEventListener('click', () => closeModal());
+      backBtn.addEventListener('click', () => openSecurityMenu());
+      modal.addEventListener('click', (ev) => { if (ev.target === modal) closeModal(); });
+      for (const btn of document.querySelectorAll('button[data-sec]')) {
+        btn.addEventListener('click', async (ev) => {
+          await ensureScenariosLoaded();
+          openSecurityList(ev.currentTarget.getAttribute('data-sec'));
+        });
+      }
+    </script>
+  </body>
+</html>

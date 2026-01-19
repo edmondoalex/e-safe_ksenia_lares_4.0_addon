@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+
+# Editors/IDEs
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local env
+.venv/
+venv/
+*.log
+*.tmp
+
+# HA add-on runtime (not part of source repo)
+data/
+/data/
+
