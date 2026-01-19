@@ -1497,13 +1497,13 @@ def main():
             obj_id = f"{mqtt_prefix_slug}_sys_{sid}_arm_desc"
             state_topic = f"{mqtt_prefix}/systems/{sid}"
             payload = {
-                "name": f"Sistema {sid} Modalità",
+                "name": "Stato Scenari allarme",
                 "unique_id": obj_id,
                 "state_topic": state_topic,
                 # Accept both raw payloads ({ARM:{D:...}}) and merged payloads ({realtime:{ARM:{D:...}}}).
                 "value_template": "{{ value_json.ARM.D | default(value_json.realtime.ARM.D | default('')) }}",
                 "icon": "mdi:shield",
-                "default_entity_id": f"sensor.{obj_id}",
+                "default_entity_id": "sensor.stato_scenari_allarme",
             }
             payload = _apply_device(payload, "systems")
             if _disc_publish("sensor", obj_id, payload):

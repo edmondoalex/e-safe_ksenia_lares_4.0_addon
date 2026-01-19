@@ -145,6 +145,10 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
   - File: `app/main.py`, `config.yaml`
   - Versione: `config.yaml` -> 5.2.16 (sensor text systems ARM.D)
 
+- Systems: rinominato sensore ARM.D come "Stato Scenari allarme" (v5.2.17).
+  - File: `app/main.py`, `config.yaml`
+  - Versione: `config.yaml` -> 5.2.17 (rename sensor systems ARM.D)
+
 ## File principali
 - `app/main.py`: MQTT, discovery, cmd handler, republish/cleanup discovery.
 - `app/websocketmanager.py`: WS verso centrale, listener realtime/static, comandi (write cfg).
