@@ -133,6 +133,10 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
   - File: `app/websocketmanager.py`, `config.yaml`
   - Versione: `config.yaml` -> 5.2.13 (affidabilita update realtime outputs)
 
+- MQTT: normalizzati ID numerici in publish (evita topic /033 vs /33), cosi update outputs non si perdono (v5.2.14).
+  - File: `app/main.py`, `config.yaml`
+  - Versione: `config.yaml` -> 5.2.14 (stabilita topic outputs)
+
 ## File principali
 - `app/main.py`: MQTT, discovery, cmd handler, republish/cleanup discovery.
 - `app/websocketmanager.py`: WS verso centrale, listener realtime/static, comandi (write cfg).

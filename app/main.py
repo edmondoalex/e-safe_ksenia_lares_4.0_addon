@@ -873,9 +873,17 @@ def main():
     mqttc.loop_start()
 
     def publish(entity_type: str, item: dict):
-        entity_id = item.get("ID")
-        if entity_id is None:
+        entity_id_raw = item.get("ID")
+        if entity_id_raw is None:
             return
+        # Normalize IDs so MQTT topics stay stable (e.g. avoid "033" vs "33").
+        try:
+            entity_id = str(int(str(entity_id_raw).strip()))
+        except Exception:
+            entity_id = str(entity_id_raw).strip()
+        if not entity_id:
+            return
+
         topic = f"{mqtt_prefix}/{entity_type}/{entity_id}"
         retain = entity_type not in ("logs",)
         payload = item
@@ -891,6 +899,12 @@ def main():
                 payload = dict(merged)
                 if "ID" not in payload:
                     payload["ID"] = entity_id
+                else:
+                    # Keep ID consistent with topic/discovery.
+                    try:
+                        payload["ID"] = str(int(str(payload.get("ID")).strip()))
+                    except Exception:
+                        payload["ID"] = entity_id
         except Exception:
             payload = item
 
