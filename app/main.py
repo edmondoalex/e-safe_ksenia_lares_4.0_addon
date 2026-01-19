@@ -3959,6 +3959,10 @@ def main():
                 _seed_partition_states(state.snapshot())
             except Exception:
                 pass
+            try:
+                _seed_output_states(state.snapshot())
+            except Exception:
+                pass
         except Exception as exc:
             logger.error(f"Discovery publish error: {exc}")
         try:

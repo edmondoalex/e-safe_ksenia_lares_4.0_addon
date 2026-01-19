@@ -197,6 +197,10 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
   - File: `app/main.py`, `config.yaml`
   - Versione: `config.yaml` -> 5.2.29 (seed outputs state)
 
+- Outputs: seed stato MQTT anche al primo avvio (non solo reconnect) per evitare switch HA unknown (v5.2.30).
+  - File: `app/main.py`, `config.yaml`
+  - Versione: `config.yaml` -> 5.2.30 (seed outputs at startup)
+
 ## File principali
 - `app/main.py`: MQTT, discovery, cmd handler, republish/cleanup discovery.
 - `app/websocketmanager.py`: WS verso centrale, listener realtime/static, comandi (write cfg).
