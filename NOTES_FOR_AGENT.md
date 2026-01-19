@@ -129,6 +129,9 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
 - WS: cooldown reconnessione configurabile (`ws_reconnect_cooldown_sec`, default 8s) per impianti che tornano online in 3–7s ma possono impiegare di più (v5.2.12).
   - File: `config.yaml`, `app/main.py`, `app/websocketmanager.py`
   - Versione: `config.yaml` -> 5.2.12 (tuning)
+- Outputs/UI: alcuni pannelli inviano STATUS_OUTPUTS come oggetto singolo (non lista) e l'update poteva non propagarsi subito alla UI; normalizzato a lista + merge snapshot realtime per ID (v5.2.13).
+  - File: `app/websocketmanager.py`, `config.yaml`
+  - Versione: `config.yaml` -> 5.2.13 (affidabilita update realtime outputs)
 
 ## File principali
 - `app/main.py`: MQTT, discovery, cmd handler, republish/cleanup discovery.

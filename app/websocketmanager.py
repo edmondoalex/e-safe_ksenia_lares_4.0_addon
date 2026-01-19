@@ -871,10 +871,19 @@ class WebSocketManager:
 
         elif message.get("CMD") == "REALTIME":
             if "STATUS_OUTPUTS" in data:
-                self._logger.debug(f"Updating state for outputs: {data['STATUS_OUTPUTS']}")
+                updates_raw = data.get("STATUS_OUTPUTS")
+                # Some panels send a single object instead of a list for realtime updates.
+                # Normalize so downstream (state/UI/MQTT) always sees a list.
+                if isinstance(updates_raw, dict):
+                    updates = [updates_raw]
+                elif isinstance(updates_raw, list):
+                    updates = updates_raw
+                else:
+                    updates = []
+
+                self._logger.debug(f"Updating state for outputs: {updates_raw}")
                 if self._output_debug_verbose:
                     try:
-                        updates = data.get("STATUS_OUTPUTS")
                         if isinstance(updates, list):
                             sample = []
                             for it in updates[:12]:
@@ -893,23 +902,45 @@ class WebSocketManager:
                         else:
                             self._logger.info(
                                 "WS1 REALTIME STATUS_OUTPUTS type=%s",
-                                type(updates).__name__,
+                                type(updates_raw).__name__,
                             )
                     except Exception:
                         pass
-                # Update the initial data
-                if self._realtimeInitialData is None:
-                    self._realtimeInitialData = {}
-                if "PAYLOAD" not in self._realtimeInitialData:
-                    self._realtimeInitialData["PAYLOAD"] = {}
-                self._realtimeInitialData["PAYLOAD"]["STATUS_OUTPUTS"] = data[
-                    "STATUS_OUTPUTS"
-                ]
+
+                if updates:
+                    # Update the initial realtime snapshot (merge-by-ID, to tolerate partial updates).
+                    if self._realtimeInitialData is None:
+                        self._realtimeInitialData = {}
+                    if "PAYLOAD" not in self._realtimeInitialData:
+                        self._realtimeInitialData["PAYLOAD"] = {}
+                    try:
+                        prev = self._realtimeInitialData["PAYLOAD"].get("STATUS_OUTPUTS") or []
+                        if isinstance(prev, dict):
+                            prev = [prev]
+                        prev_by_id = {}
+                        if isinstance(prev, list):
+                            for it in prev:
+                                if not isinstance(it, dict):
+                                    continue
+                                prev_by_id[str(it.get("ID"))] = it
+                        for it in updates:
+                            if not isinstance(it, dict):
+                                continue
+                            oid = str(it.get("ID"))
+                            if oid in prev_by_id and isinstance(prev_by_id.get(oid), dict):
+                                prev_by_id[oid] = {**prev_by_id[oid], **it}
+                            else:
+                                prev_by_id[oid] = it
+                        self._realtimeInitialData["PAYLOAD"]["STATUS_OUTPUTS"] = list(
+                            prev_by_id.values()
+                        )
+                    except Exception:
+                        self._realtimeInitialData["PAYLOAD"]["STATUS_OUTPUTS"] = updates
 
                 # Notify listeners
-                await self._notify_listeners("lights", data["STATUS_OUTPUTS"])
-                await self._notify_listeners("switches", data["STATUS_OUTPUTS"])
-                await self._notify_listeners("covers", data["STATUS_OUTPUTS"])
+                await self._notify_listeners("lights", updates)
+                await self._notify_listeners("switches", updates)
+                await self._notify_listeners("covers", updates)
             if "STATUS_BUS_HA_SENSORS" in data:
                 domus_updates = data["STATUS_BUS_HA_SENSORS"]
                 self._logger.debug(
