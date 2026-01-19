@@ -1501,7 +1501,7 @@ def main():
                 "unique_id": obj_id,
                 "state_topic": state_topic,
                 # Accept both raw payloads ({ARM:{D:...}}) and merged payloads ({realtime:{ARM:{D:...}}}).
-                "value_template": "{{ value_json.ARM.D | default(value_json.realtime.ARM.D | default('')) }}",
+                "value_template": "{{ (value_json.get('ARM', {}).get('D') or value_json.get('realtime', {}).get('ARM', {}).get('D') or '') }}",
                 "icon": "mdi:shield",
                 "default_entity_id": "sensor.stato_scenari_allarme",
             }
