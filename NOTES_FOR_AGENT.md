@@ -181,6 +181,10 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
   - File: `app/main.py`, `config.yaml`
   - Versione: `config.yaml` -> 5.2.25 (fix disarm detection)
 
+- Partitions: sensori in allarme derivati da LOGS ZALARM (usa I1=nome zona) e reset al disinserimento partizione (v5.2.26).
+  - File: `app/main.py`, `config.yaml`
+  - Versione: `config.yaml` -> 5.2.26 (alarm zones from logs)
+
 ## File principali
 - `app/main.py`: MQTT, discovery, cmd handler, republish/cleanup discovery.
 - `app/websocketmanager.py`: WS verso centrale, listener realtime/static, comandi (write cfg).

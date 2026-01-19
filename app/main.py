@@ -1304,6 +1304,94 @@ def main():
             return s
         return s[:235].rstrip() + "…"
 
+    # Active alarm zones derived from LOGS (ZALARM), grouped by partition.
+    # key: partition_id -> { zone_id(or "name:<...>") : display_name }
+    _alarm_zones_active: dict[int, dict[str, str]] = {}
+
+    def _norm_text(s: str) -> str:
+        return re.sub(r"\s+", " ", str(s or "").strip()).casefold()
+
+    def _find_zone_by_name(zone_name: str) -> tuple[str | None, str | None]:
+        """
+        Resolve a log zone description (I1) to (zone_id, display_name) by matching zone static.DES/name.
+        """
+        target = _norm_text(zone_name)
+        if not target:
+            return None, None
+        try:
+            snap = state.snapshot()
+            entities = snap.get("entities") or []
+        except Exception:
+            entities = []
+        if not isinstance(entities, list):
+            return None, None
+        for e in entities:
+            if not isinstance(e, dict):
+                continue
+            if str(e.get("type") or "").lower() != "zones":
+                continue
+            zid = str(e.get("id") or "").strip()
+            if not zid:
+                continue
+            st = e.get("static") if isinstance(e.get("static"), dict) else {}
+            cand = st.get("DES") or e.get("name") or ""
+            if _norm_text(cand) == target:
+                return zid, (str(cand).strip() or f"Zona {zid}")
+        return None, None
+
+    def _armed_partition_ids() -> list[int]:
+        try:
+            snap = state.snapshot()
+            entities = snap.get("entities") or []
+        except Exception:
+            entities = []
+        out: list[int] = []
+        if not isinstance(entities, list):
+            return out
+        for e in entities:
+            if not isinstance(e, dict):
+                continue
+            if str(e.get("type") or "").lower() != "partitions":
+                continue
+            pid_s = str(e.get("id") or "").strip()
+            try:
+                pid = int(pid_s)
+            except Exception:
+                continue
+            try:
+                merged = state.get_merged("partitions", pid_s)
+            except Exception:
+                merged = e
+            if not isinstance(merged, dict):
+                continue
+            if not _partition_is_disarmed(merged):
+                out.append(pid)
+        return sorted(set([p for p in out if p > 0]))
+
+    def _add_alarm_zone_to_partitions(zone_id: str | None, zone_name: str, pids: list[int]):
+        zid_key = None
+        if zone_id:
+            zid_key = str(zone_id).strip()
+        if not zid_key:
+            zid_key = f"name:{_norm_text(zone_name)}"
+        disp = str(zone_name).strip() or zid_key
+        for pid in pids:
+            if pid <= 0:
+                continue
+            bucket = _alarm_zones_active.get(pid)
+            if not isinstance(bucket, dict):
+                bucket = {}
+            bucket[zid_key] = disp
+            _alarm_zones_active[pid] = bucket
+
+    def _active_alarm_zones_for_partition(pid: int) -> list[tuple[str, str]]:
+        bucket = _alarm_zones_active.get(int(pid)) or {}
+        if not isinstance(bucket, dict) or not bucket:
+            return []
+        items = [(k, v) for k, v in bucket.items() if str(v or "").strip()]
+        items.sort(key=lambda kv: str(kv[1]).casefold())
+        return [(k, v) for k, v in items]
+
     def publish_alarm_zones_for_partition(pid: int):
         try:
             pid_int = int(pid)
@@ -1318,7 +1406,12 @@ def main():
         if isinstance(part, dict) and _partition_is_disarmed(part):
             state_str = "Nessuno"
         else:
-            state_str = _format_alarm_zones_state(_zones_alarm_for_partition(pid_int))
+            active = _active_alarm_zones_for_partition(pid_int)
+            if active:
+                state_str = _format_alarm_zones_state(active)
+            else:
+                # Fallback to computed realtime heuristics.
+                state_str = _format_alarm_zones_state(_zones_alarm_for_partition(pid_int))
         topic = f"{mqtt_prefix}/partitions/{pid_int}/alarm_zones"
         if mqtt_debug_verbose:
             try:
@@ -2238,6 +2331,13 @@ def main():
                         except Exception:
                             continue
                     for pid in sorted(set([p for p in pids if p > 0])):
+                        # Clear derived alarms when a partition is disarmed.
+                        try:
+                            merged = state.get_merged("partitions", str(pid))
+                        except Exception:
+                            merged = None
+                        if isinstance(merged, dict) and _partition_is_disarmed(merged):
+                            _alarm_zones_active.pop(int(pid), None)
                         publish_alarm_zones_for_partition(pid)
                 elif entity_type == "zones" and updates_list:
                     touched = set()
@@ -2270,6 +2370,44 @@ def main():
                     else:
                         publish_alarm_zones_for_all_partitions()
                 else:
+                    publish_alarm_zones_for_all_partitions()
+        except Exception:
+            pass
+
+        # LOGS-derived alarm zones: add on ZALARM events.
+        try:
+            if entity_type == "logs":
+                updates_list = updates if isinstance(updates, list) else ([updates] if isinstance(updates, dict) else [])
+                if updates_list:
+                    for it in updates_list:
+                        if not isinstance(it, dict):
+                            continue
+                        typ = str(it.get("TYPE") or "").strip().upper()
+                        ev = str(it.get("EV") or "").strip().casefold()
+                        if (typ != "ZALARM") and ("allarme zona" not in ev):
+                            continue
+                        zname = str(it.get("I1") or "").strip()
+                        zid, disp = _find_zone_by_name(zname)
+                        # Determine partition(s) for this zone.
+                        pids = []
+                        if zid:
+                            try:
+                                merged = state.get_merged("zones", str(zid))
+                            except Exception:
+                                merged = None
+                            if isinstance(merged, dict):
+                                st = merged.get("static") if isinstance(merged.get("static"), dict) else {}
+                                pids = _decode_zone_prt_partition_ids(st.get("PRT"), _partition_ids_from_state())
+                        if not pids:
+                            armed = _armed_partition_ids()
+                            if len(armed) == 1:
+                                pids = armed
+                            elif armed:
+                                # fallback: associate to all armed partitions to avoid losing info
+                                pids = armed
+                            else:
+                                pids = [1]
+                        _add_alarm_zone_to_partitions(zid, disp or zname, pids)
                     publish_alarm_zones_for_all_partitions()
         except Exception:
             pass
