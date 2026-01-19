@@ -1116,11 +1116,65 @@ def main():
             return True
         return False
 
+    def _parse_zone_id(value) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return value if value > 0 else None
+        if isinstance(value, dict):
+            cand = value.get("ID") or value.get("id") or value.get("ZONE") or value.get("zone")
+            return _parse_zone_id(cand)
+        s = str(value).strip()
+        if not s:
+            return None
+        # Accept "33", "Z33", "ZONE_33", etc.
+        m = re.search(r"(\d+)", s)
+        if not m:
+            return None
+        try:
+            n = int(m.group(1))
+        except Exception:
+            return None
+        return n if n > 0 else None
+
+    def _system_alarm_zone_ids() -> set[int]:
+        alarm_ids: set[int] = set()
+        try:
+            snap = state.snapshot()
+            entities = snap.get("entities") or []
+        except Exception:
+            entities = []
+        if not isinstance(entities, list):
+            return alarm_ids
+        for e in entities:
+            if not isinstance(e, dict):
+                continue
+            if str(e.get("type") or "").lower() != "systems":
+                continue
+            sid = str(e.get("id") or "").strip()
+            try:
+                sys_merged = state.get_merged("systems", sid) if sid else e
+            except Exception:
+                sys_merged = e
+            if not isinstance(sys_merged, dict):
+                continue
+            rt = sys_merged.get("realtime") if isinstance(sys_merged.get("realtime"), dict) else {}
+            # Prefer current alarms list.
+            alarm_list = rt.get("ALARM")
+            if not isinstance(alarm_list, list):
+                continue
+            for it in alarm_list:
+                zid = _parse_zone_id(it)
+                if zid:
+                    alarm_ids.add(int(zid))
+        return alarm_ids
+
     def _zones_alarm_for_partition(pid: int) -> list[tuple[str, str]]:
         if pid <= 0:
             return []
         bit = 1 << (pid - 1)
         out: list[tuple[str, str]] = []
+        alarm_ids = _system_alarm_zone_ids()
         try:
             snap = state.snapshot()
             entities = snap.get("entities") or []
@@ -1136,6 +1190,13 @@ def main():
             zid = str(e.get("id") or "").strip()
             if not zid:
                 continue
+            zid_int = None
+            try:
+                zid_int = int(str(zid).strip())
+            except Exception:
+                zid_int = _parse_zone_id(zid)
+            if alarm_ids and (not zid_int or int(zid_int) not in alarm_ids):
+                continue
             try:
                 merged = state.get_merged("zones", zid)
             except Exception:
@@ -1144,7 +1205,8 @@ def main():
                 continue
             if (_zone_prt_mask(merged) & bit) == 0:
                 continue
-            if not _zone_is_alarm(merged):
+            # If systems provides ALARM list, trust it; otherwise fallback to per-zone heuristic.
+            if (not alarm_ids) and (not _zone_is_alarm(merged)):
                 continue
             name = str(merged.get("name") or "").strip() or f"Zona {zid}"
             out.append((zid, name))
@@ -2085,7 +2147,7 @@ def main():
 
         # Derived sensors: list of alarm zones per partition.
         try:
-            if entity_type in ("zones", "partitions"):
+            if entity_type in ("zones", "partitions", "systems"):
                 updates_list = updates if isinstance(updates, list) else ([updates] if isinstance(updates, dict) else [])
                 if entity_type == "partitions" and updates_list:
                     pids = []
