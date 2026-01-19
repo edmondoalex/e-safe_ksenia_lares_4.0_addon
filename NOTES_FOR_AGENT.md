@@ -177,6 +177,10 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
   - File: `app/main.py`, `config.yaml`
   - Versione: `config.yaml` -> 5.2.24 (fix PRT decode for alarm zones)
 
+- Partitions: fix clear sensori in allarme (DA non e disinserito; azzera solo su D/DISINSERITO) (v5.2.25).
+  - File: `app/main.py`, `config.yaml`
+  - Versione: `config.yaml` -> 5.2.25 (fix disarm detection)
+
 ## File principali
 - `app/main.py`: MQTT, discovery, cmd handler, republish/cleanup discovery.
 - `app/websocketmanager.py`: WS verso centrale, listener realtime/static, comandi (write cfg).

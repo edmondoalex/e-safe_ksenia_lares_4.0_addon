@@ -1061,7 +1061,9 @@ def main():
 
     def _partition_is_disarmed(part_payload: dict) -> bool:
         s = _partition_arm_state(part_payload)
-        return (s == "") or (s.startswith("D")) or (s in ("DISARM", "DISINSERITO"))
+        # Some panels use codes like DA/DT/etc for armed/transition states; only treat plain 'D'
+        # (and explicit strings) as disarmed for clearing derived sensors.
+        return (s == "") or (s == "D") or (s in ("DISARM", "DISINSERITO"))
 
     def _partition_ids_from_state() -> list[int]:
         try:
