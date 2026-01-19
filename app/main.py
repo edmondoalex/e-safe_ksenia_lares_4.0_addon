@@ -1071,7 +1071,32 @@ def main():
         if prt is None:
             return 0
         try:
-            return int(str(prt).strip())
+            if isinstance(prt, (list, tuple)):
+                mask = 0
+                for x in prt:
+                    try:
+                        pid = int(str(x).strip())
+                    except Exception:
+                        continue
+                    if pid > 0:
+                        mask |= 1 << (pid - 1)
+                return int(mask)
+            s = str(prt).strip()
+            # Some panels may encode partitions as "1,2" (list) instead of bitmask.
+            if "," in s or " " in s:
+                mask = 0
+                for tok in re.split(r"[,\s]+", s):
+                    tok = str(tok or "").strip()
+                    if not tok:
+                        continue
+                    try:
+                        pid = int(tok)
+                    except Exception:
+                        continue
+                    if pid > 0:
+                        mask |= 1 << (pid - 1)
+                return int(mask)
+            return int(s, 0)
         except Exception:
             return 0
 
@@ -1085,7 +1110,7 @@ def main():
 
         sta = _n(rt.get("STA"))
         a = _n(rt.get("A"))
-        if sta == "A":
+        if sta in ("A", "AL", "ALARM", "TRIG", "TRIGGERED"):
             return True
         if a not in ("", "N", "0", "F", "OFF", "FALSE", "NO"):
             return True
@@ -1154,6 +1179,11 @@ def main():
         else:
             state_str = _format_alarm_zones_state(_zones_alarm_for_partition(pid_int))
         topic = f"{mqtt_prefix}/partitions/{pid_int}/alarm_zones"
+        if mqtt_debug_verbose:
+            try:
+                logger.info("alarm_zones p%s => %s", pid_int, state_str)
+            except Exception:
+                pass
         _log_mqtt("publish", topic, state_str, True)
         mqttc.publish(topic, state_str, retain=True)
 
@@ -2056,9 +2086,10 @@ def main():
         # Derived sensors: list of alarm zones per partition.
         try:
             if entity_type in ("zones", "partitions"):
-                if entity_type == "partitions" and isinstance(updates, list):
+                updates_list = updates if isinstance(updates, list) else ([updates] if isinstance(updates, dict) else [])
+                if entity_type == "partitions" and updates_list:
                     pids = []
-                    for it in updates:
+                    for it in updates_list:
                         if not isinstance(it, dict):
                             continue
                         try:
@@ -2067,9 +2098,9 @@ def main():
                             continue
                     for pid in sorted(set([p for p in pids if p > 0])):
                         publish_alarm_zones_for_partition(pid)
-                elif entity_type == "zones" and isinstance(updates, list):
+                elif entity_type == "zones" and updates_list:
                     touched = set()
-                    for it in updates:
+                    for it in updates_list:
                         if not isinstance(it, dict):
                             continue
                         zid = it.get("ID")
@@ -2091,8 +2122,11 @@ def main():
                         for pid in range(1, 33):
                             if (mask & (1 << (pid - 1))) != 0:
                                 touched.add(pid)
-                    for pid in sorted(touched):
-                        publish_alarm_zones_for_partition(pid)
+                    if touched:
+                        for pid in sorted(touched):
+                            publish_alarm_zones_for_partition(pid)
+                    else:
+                        publish_alarm_zones_for_all_partitions()
                 else:
                     publish_alarm_zones_for_all_partitions()
         except Exception:
