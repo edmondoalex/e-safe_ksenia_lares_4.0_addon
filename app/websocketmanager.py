@@ -12,6 +12,7 @@ from wscall import (
     ws_login,
     realtime,
     realtime_select,
+    REALTIME_TYPES_LIST,
     readData,
     readZones,
     exeScenario,
@@ -452,6 +453,7 @@ class WebSocketManager:
                         self._loginId,
                         self._logger,
                         ["STATUS_OUTPUTS"],
+                        register_types=REALTIME_TYPES_LIST,
                         dispatch_unhandled=self.handle_message,
                     )
                 payload = resp.get("PAYLOAD") if isinstance(resp, dict) else None
@@ -530,6 +532,7 @@ class WebSocketManager:
                         self._loginId,
                         self._logger,
                         types,
+                        register_types=REALTIME_TYPES_LIST,
                         dispatch_unhandled=self.handle_message,
                     )
                 payload = resp.get("PAYLOAD") if isinstance(resp, dict) else None

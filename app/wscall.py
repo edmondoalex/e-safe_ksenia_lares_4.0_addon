@@ -13,6 +13,13 @@ from crc import addCRC
 read_types ='["OUTPUTS","BUS_HAS","SCENARIOS","POWER_LINES","PARTITIONS","ZONES","STATUS_SYSTEM","CFG_SCHEDULER_TIMERS","CFG_HOLIDAYS","TEMPERATURES","HUMIDITY","CFG_THERMOSTATS","CFG_ACCOUNTS"]'
 realtime_types='["STATUS_OUTPUTS","STATUS_BUS_HA_SENSORS","STATUS_POWER_LINES","STATUS_PARTITIONS","STATUS_ZONES","STATUS_SYSTEM","STATUS_CONNECTION","STATUS_TEMPERATURES","STATUS_HUMIDITY"]'
 
+try:
+    REALTIME_TYPES_LIST = json.loads(realtime_types)
+    if not isinstance(REALTIME_TYPES_LIST, list):
+        REALTIME_TYPES_LIST = []
+except Exception:
+    REALTIME_TYPES_LIST = []
+
 cmd_id = 1
 
 
@@ -91,11 +98,14 @@ Refresh realtime snapshot for a subset of TYPES.
 This sends another REALTIME/REGISTER message and waits for a reply containing at least
 one of the requested payload keys.
 """
-async def realtime_select(websocket, login_id, _LOGGER, types, dispatch_unhandled=None):
+async def realtime_select(
+    websocket, login_id, _LOGGER, types, dispatch_unhandled=None, register_types=None
+):
     global cmd_id
     cmd_id += 1
     types_list = types if isinstance(types, list) else []
-    types_json = json.dumps(types_list)
+    register_list = register_types if isinstance(register_types, list) else types_list
+    types_json = json.dumps(register_list)
     json_cmd = addCRC(
         '{"SENDER":"HomeAssistant", "RECEIVER":"", "CMD":"REALTIME", "ID":"'
         + str(cmd_id)

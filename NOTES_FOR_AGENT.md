@@ -254,3 +254,8 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
 - Fix: poller aggiuntivo per STATUS_SYSTEM/STATUS_PARTITIONS (riduce UI/HA bloccata su stato arm/disarm vecchio).
 - File toccati: app/websocketmanager.py, config.yaml, NOTES_FOR_AGENT.md
 - Versione: 5.2.35 (refresh periodico arm/disarm)
+
+## 5.2.36
+- Fix: realtime_select registra sempre i tipi realtime completi (evita perdere STATUS_OUTPUTS quando altri poller fanno refresh).
+- File toccati: app/wscall.py, app/websocketmanager.py, config.yaml, NOTES_FOR_AGENT.md
+- Versione: 5.2.36 (stabilizza push realtime)
