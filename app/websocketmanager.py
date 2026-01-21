@@ -13,6 +13,7 @@ from wscall import (
     realtime,
     realtime_select,
     REALTIME_TYPES_LIST,
+    build_realtime_register_cmd,
     readData,
     readZones,
     exeScenario,
@@ -89,6 +90,7 @@ class WebSocketManager:
         self._ws_lock = asyncio.Lock()
         self._command_queue = asyncio.Queue()  # Command queue
         self._pending_commands = {}
+        self._pending_realtime_select = {}
         self._listener_task = None
         self._cmd_task = None
         self._reconnect_task = None
@@ -444,18 +446,13 @@ class WebSocketManager:
                 await asyncio.sleep(2.0)
                 continue
             try:
-                async with self._ws_lock:
-                    if not self._ws or not self._loginId:
-                        await asyncio.sleep(poll_s)
-                        continue
-                    resp = await realtime_select(
-                        self._ws,
-                        self._loginId,
-                        self._logger,
-                        ["STATUS_OUTPUTS"],
-                        register_types=REALTIME_TYPES_LIST,
-                        dispatch_unhandled=self.handle_message,
-                    )
+                if not self._ws or not self._loginId:
+                    await asyncio.sleep(poll_s)
+                    continue
+                # Do not call websocket.recv from this poller: it would block the realtime listener.
+                resp = await self.realtime_select_async(
+                    ["STATUS_OUTPUTS"], register_types=REALTIME_TYPES_LIST, timeout=4.0
+                )
                 payload = resp.get("PAYLOAD") if isinstance(resp, dict) else None
                 updates = payload.get("STATUS_OUTPUTS") if isinstance(payload, dict) else None
                 if isinstance(updates, dict):
@@ -523,18 +520,13 @@ class WebSocketManager:
                 await asyncio.sleep(2.0)
                 continue
             try:
-                async with self._ws_lock:
-                    if not self._ws or not self._loginId:
-                        await asyncio.sleep(poll_s)
-                        continue
-                    resp = await realtime_select(
-                        self._ws,
-                        self._loginId,
-                        self._logger,
-                        types,
-                        register_types=REALTIME_TYPES_LIST,
-                        dispatch_unhandled=self.handle_message,
-                    )
+                if not self._ws or not self._loginId:
+                    await asyncio.sleep(poll_s)
+                    continue
+                # Do not call websocket.recv from this poller: it would block the realtime listener.
+                resp = await self.realtime_select_async(
+                    types, register_types=REALTIME_TYPES_LIST, timeout=4.0
+                )
                 payload = resp.get("PAYLOAD") if isinstance(resp, dict) else None
                 if not isinstance(payload, dict):
                     await asyncio.sleep(poll_s)
@@ -901,6 +893,10 @@ class WebSocketManager:
                     self._logger.error(f"Error decoding JSON: {e}")
                     continue
                 try:
+                    try:
+                        self._maybe_resolve_realtime_select(data)
+                    except Exception:
+                        pass
                     await self.handle_message(data)
                 except Exception as exc:
                     # Don't let malformed/unexpected payloads kill the listener task
@@ -910,6 +906,53 @@ class WebSocketManager:
                     except Exception:
                         pass
                     continue
+
+    def _maybe_resolve_realtime_select(self, msg: dict):
+        try:
+            if not isinstance(msg, dict):
+                return
+            if msg.get("CMD") != "REALTIME":
+                return
+            mid = str(msg.get("ID") or "")
+            if not mid:
+                return
+            entry = self._pending_realtime_select.get(mid)
+            if not isinstance(entry, dict):
+                return
+            fut = entry.get("future")
+            want = entry.get("types") or []
+            if fut is None or getattr(fut, "done", lambda: True)():
+                self._pending_realtime_select.pop(mid, None)
+                return
+            payload = msg.get("PAYLOAD")
+            if not isinstance(payload, dict):
+                return
+            if want and not any(t in payload for t in want):
+                return
+            fut.set_result(msg)
+            self._pending_realtime_select.pop(mid, None)
+        except Exception:
+            return
+
+    async def realtime_select_async(self, types, register_types=None, timeout=4.0):
+        if not self._ws or not self._loginId:
+            return {}
+        expected_id, json_cmd, wait_types = build_realtime_register_cmd(
+            self._loginId, types, register_types=register_types
+        )
+        future = asyncio.get_running_loop().create_future()
+        self._pending_realtime_select[str(expected_id)] = {"future": future, "types": wait_types}
+        try:
+            async with self._ws_lock:
+                await self._ws.send(json_cmd)
+        except Exception:
+            self._pending_realtime_select.pop(str(expected_id), None)
+            return {}
+        try:
+            return await asyncio.wait_for(future, timeout=float(timeout or 4.0))
+        except Exception:
+            self._pending_realtime_select.pop(str(expected_id), None)
+            return {}
 
     """
     Handles messages received from the Ksenia Lares WebSocket server.

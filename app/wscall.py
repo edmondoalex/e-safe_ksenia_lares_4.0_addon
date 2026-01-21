@@ -22,6 +22,31 @@ except Exception:
 
 cmd_id = 1
 
+def build_realtime_register_cmd(login_id, types, register_types=None):
+    """
+    Build a REALTIME/REGISTER command.
+
+    Returns (expected_id, json_cmd, wait_for_types_list)
+    """
+    global cmd_id
+    cmd_id += 1
+    expected_id = str(cmd_id)
+    types_list = types if isinstance(types, list) else []
+    register_list = register_types if isinstance(register_types, list) else types_list
+    types_json = json.dumps(register_list)
+    json_cmd = addCRC(
+        '{"SENDER":"HomeAssistant", "RECEIVER":"", "CMD":"REALTIME", "ID":"'
+        + expected_id
+        + '", "PAYLOAD_TYPE":"REGISTER", "PAYLOAD":{"ID_LOGIN":"'
+        + str(login_id)
+        + '","TYPES":'
+        + types_json
+        + '},"TIMESTAMP":"'
+        + str(int(time.time()))
+        + '","CRC_16":"0x0000"}'
+    )
+    return expected_id, json_cmd, types_list
+
 
 async def _dispatch_unhandled(dispatch_unhandled, message: dict):
     if dispatch_unhandled is None:
@@ -101,21 +126,8 @@ one of the requested payload keys.
 async def realtime_select(
     websocket, login_id, _LOGGER, types, dispatch_unhandled=None, register_types=None
 ):
-    global cmd_id
-    cmd_id += 1
-    types_list = types if isinstance(types, list) else []
-    register_list = register_types if isinstance(register_types, list) else types_list
-    types_json = json.dumps(register_list)
-    json_cmd = addCRC(
-        '{"SENDER":"HomeAssistant", "RECEIVER":"", "CMD":"REALTIME", "ID":"'
-        + str(cmd_id)
-        + '", "PAYLOAD_TYPE":"REGISTER", "PAYLOAD":{"ID_LOGIN":"'
-        + str(login_id)
-        + '","TYPES":'
-        + types_json
-        + '},"TIMESTAMP":"'
-        + str(int(time.time()))
-        + '","CRC_16":"0x0000"}'
+    expected_id, json_cmd, types_list = build_realtime_register_cmd(
+        login_id, types, register_types=register_types
     )
     try:
         await websocket.send(json_cmd)
@@ -126,6 +138,9 @@ async def realtime_select(
                 return {}
             json_resp = await asyncio.wait_for(websocket.recv(), timeout=timeout)
             resp = json.loads(json_resp)
+            if str(resp.get("ID") or "") != str(expected_id):
+                await _dispatch_unhandled(dispatch_unhandled, resp)
+                continue
             payload = resp.get("PAYLOAD") if isinstance(resp, dict) else None
             if isinstance(payload, dict):
                 for t in types_list:
