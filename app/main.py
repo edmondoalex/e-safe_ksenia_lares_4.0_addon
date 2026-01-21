@@ -177,7 +177,19 @@ def main():
         except Exception:
             pass
 
-    def _on_disconnect(client, userdata, reason_code=0, properties=None):
+    def _on_disconnect(client, userdata, *args, **kwargs):
+        # paho-mqtt callback signature differs between v1 and v2:
+        # - v1: on_disconnect(client, userdata, rc)
+        # - v2: on_disconnect(client, userdata, disconnect_flags, reason_code, properties)
+        reason_code = kwargs.get("reason_code", None)
+        if reason_code is None:
+            try:
+                if len(args) == 1:
+                    reason_code = args[0]
+                elif len(args) >= 2:
+                    reason_code = args[1]
+            except Exception:
+                reason_code = None
         if mqtt_debug_verbose:
             logger.info(f"[MQTT] disconnesso rc={reason_code}")
 

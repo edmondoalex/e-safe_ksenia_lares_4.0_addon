@@ -264,3 +264,8 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
 - Fix: poller realtime non usa piu' websocket.recv (evita blocchi e desync UI quando fa refresh).
 - File toccati: app/websocketmanager.py, app/wscall.py, config.yaml, NOTES_FOR_AGENT.md
 - Versione: 5.2.37 (poller asincrono con listener unico)
+
+## 5.2.38
+- Fix: callback MQTT on_disconnect compatibile con paho-mqtt v1/v2 (evita crash thread e restart).
+- File toccati: app/main.py, config.yaml, NOTES_FOR_AGENT.md
+- Versione: 5.2.38 (stabilita' MQTT dopo reboot/lag)
