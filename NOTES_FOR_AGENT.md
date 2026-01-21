@@ -239,3 +239,8 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
 - Audio beep in UI: richiede almeno 1 tap per sbloccare audio (policy browser).
 - Event log/cronologia “ultimi N eventi per zona” (oltre all’ultimo evento).
 - Pulizia completa di eventuali discovery legacy rimasti (old object_id / vecchi domini).
+
+## 5.2.33
+- Fix: Security UI non blocca piu' il polling quando SSE e' connesso (evita stato vecchio/stale).
+- File toccati: app/debug_server.py, _security_page.html, config.yaml, NOTES_FOR_AGENT.md
+- Versione: 5.2.33 (polling fallback sempre attivo in Security UI)

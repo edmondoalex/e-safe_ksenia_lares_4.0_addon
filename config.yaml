@@ -1,6 +1,6 @@
 name: e-Safe Ksenia Lares 4.0
 slug: ksenia_lares_addon
-version: "5.2.32"
+version: "5.2.33"
 description: Add-on Home Assistant per centrale Ksenia Lares con MQTT Discovery
 startup: services
 boot: auto

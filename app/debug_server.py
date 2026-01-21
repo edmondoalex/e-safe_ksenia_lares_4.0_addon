@@ -4649,7 +4649,9 @@ def render_security_ui(snapshot):
         if (sse) return true;
         try {{ sse = new EventSource('/api/stream'); }} catch (_e) {{ sse = null; return false; }}
         sse.onopen = () => {{
-          startPolling(0);
+          // Keep a polling fallback even when SSE is connected: SSE events are deltas
+          // and may not include all entities needed by this view.
+          startPolling(2500);
         }};
         sse.onmessage = (ev) => {{
           try {{
