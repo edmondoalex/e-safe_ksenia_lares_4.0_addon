@@ -249,3 +249,8 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
 - Fix: index_debug mantiene polling anche con SSE (evita stati vecchi quando si perde un update).
 - File toccati: app/debug_server.py, config.yaml, NOTES_FOR_AGENT.md
 - Versione: 5.2.34 (polling fallback sempre attivo in index_debug)
+
+## 5.2.35
+- Fix: poller aggiuntivo per STATUS_SYSTEM/STATUS_PARTITIONS (riduce UI/HA bloccata su stato arm/disarm vecchio).
+- File toccati: app/websocketmanager.py, config.yaml, NOTES_FOR_AGENT.md
+- Versione: 5.2.35 (refresh periodico arm/disarm)

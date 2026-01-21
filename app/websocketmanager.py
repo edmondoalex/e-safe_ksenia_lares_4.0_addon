@@ -96,6 +96,7 @@ class WebSocketManager:
         self._thermostats_task = None
         self._zones_task = None
         self._outputs_task = None
+        self._systems_task = None
         self._last_zones_by_id = {}
         self._on_reconnect = None  # async callback(read_data, realtime_initial, system_version)
 
@@ -169,6 +170,8 @@ class WebSocketManager:
             self._zones_task = asyncio.create_task(self.zones_poller())
         if self._outputs_task is None or self._outputs_task.done():
             self._outputs_task = asyncio.create_task(self.outputs_poller())
+        if self._systems_task is None or self._systems_task.done():
+            self._systems_task = asyncio.create_task(self.systems_poller())
 
     def _zone_compact(self, z: dict) -> dict:
         if not isinstance(z, dict):
@@ -506,6 +509,64 @@ class WebSocketManager:
                     await self._notify_listeners("covers", patches)
             except Exception as exc:
                 self._logger.error("outputs poller error: %s", exc)
+            await asyncio.sleep(poll_s)
+
+    async def systems_poller(self):
+        # Periodically refresh system/partition snapshot: some panels miss emitting STATUS_SYSTEM /
+        # STATUS_PARTITIONS for arm/disarm changes, which can leave UI/MQTT stuck on old state.
+        poll_s = 12.0
+        types = ["STATUS_SYSTEM", "STATUS_PARTITIONS"]
+        while True:
+            if not self._running:
+                await asyncio.sleep(2.0)
+                continue
+            try:
+                async with self._ws_lock:
+                    if not self._ws or not self._loginId:
+                        await asyncio.sleep(poll_s)
+                        continue
+                    resp = await realtime_select(
+                        self._ws,
+                        self._loginId,
+                        self._logger,
+                        types,
+                        dispatch_unhandled=self.handle_message,
+                    )
+                payload = resp.get("PAYLOAD") if isinstance(resp, dict) else None
+                if not isinstance(payload, dict):
+                    await asyncio.sleep(poll_s)
+                    continue
+                if "HomeAssistant" in payload and isinstance(payload.get("HomeAssistant"), dict):
+                    data = payload.get("HomeAssistant") or {}
+                else:
+                    data = next(iter(payload.values()), {})
+                if not isinstance(data, dict):
+                    await asyncio.sleep(poll_s)
+                    continue
+
+                # Keep cached initial snapshot coherent (used by UI/MQTT seed paths).
+                if self._realtimeInitialData is None:
+                    self._realtimeInitialData = {}
+                if "PAYLOAD" not in self._realtimeInitialData:
+                    self._realtimeInitialData["PAYLOAD"] = {}
+
+                if "STATUS_PARTITIONS" in data:
+                    parts = data.get("STATUS_PARTITIONS")
+                    if isinstance(parts, dict):
+                        parts = [parts]
+                    if isinstance(parts, list) and parts:
+                        self._realtimeInitialData["PAYLOAD"]["STATUS_PARTITIONS"] = parts
+                        await self._notify_listeners("partitions", parts)
+
+                if "STATUS_SYSTEM" in data:
+                    systems = data.get("STATUS_SYSTEM")
+                    if isinstance(systems, dict):
+                        systems = [systems]
+                    if isinstance(systems, list) and systems:
+                        self._realtimeInitialData["PAYLOAD"]["STATUS_SYSTEM"] = systems
+                        await self._notify_listeners("systems", systems)
+            except Exception as exc:
+                self._logger.error("systems poller error: %s", exc)
             await asyncio.sleep(poll_s)
 
     async def _close_ws(self):
