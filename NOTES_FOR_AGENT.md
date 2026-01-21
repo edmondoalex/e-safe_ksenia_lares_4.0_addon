@@ -274,3 +274,8 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
 - Log: aggiunto timestamp (data/ora) in tutte le righe di log dell'add-on e UI GET usa logging.
 - File toccati: app/main.py, app/debug_server.py, config.yaml, NOTES_FOR_AGENT.md
 - Versione: 5.2.39 (timeline log)
+
+## 5.2.40
+- MQTT: aggiunta discovery per cover (CAT=ROLL) e comandi MQTT cover (open/close/stop/pos).
+- File toccati: app/main.py, config.yaml, NOTES_FOR_AGENT.md
+- Versione: 5.2.40 (portoni/tapparelle visibili in HA come cover)

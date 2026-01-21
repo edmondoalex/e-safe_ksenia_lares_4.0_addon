@@ -174,6 +174,7 @@ def main():
             logger.info(f"[MQTT] connesso rc={reason_code} flags={flags}")
         try:
             client.subscribe(f"{mqtt_prefix}/cmd/output/#")
+            client.subscribe(f"{mqtt_prefix}/cmd/cover/#")
             client.subscribe(f"{mqtt_prefix}/cmd/scenario/#")
             client.subscribe(f"{mqtt_prefix}/cmd/partition/#")
             client.subscribe(f"{mqtt_prefix}/cmd/zone_bypass/#")
@@ -354,6 +355,89 @@ def main():
                         return ok
 
                 asyncio.run_coroutine_threadsafe(_coro_out(), loop)
+                return
+
+            if domain == "cover":
+                p_raw = payload_raw.strip()
+                p = p_raw.upper()
+
+                async def _coro_cover():
+                    try:
+                        # Topic format:
+                        # - <prefix>/cmd/cover/<id>              payload: OPEN/CLOSE/STOP or numeric position
+                        # - <prefix>/cmd/cover/<id>/set_position payload: 0-100
+                        if sub_action in ("set", "pos", "position", "set_position"):
+                            try:
+                                pos = int(float(p_raw))
+                            except Exception:
+                                return False
+                            pos = max(0, min(100, pos))
+                            ok = await mgr.setCoverPosition(target_id, pos)
+                            if ok:
+                                patch = {"ID": str(target_id), "POS": str(pos)}
+                                try:
+                                    state.apply_realtime_update("covers", [patch])
+                                    publish("covers", patch)
+                                    publish("outputs", patch)
+                                except Exception:
+                                    pass
+                            return ok
+
+                        if p.isdigit():
+                            try:
+                                pos = int(p)
+                            except Exception:
+                                return False
+                            pos = max(0, min(100, pos))
+                            ok = await mgr.setCoverPosition(target_id, pos)
+                            if ok:
+                                patch = {"ID": str(target_id), "POS": str(pos)}
+                                try:
+                                    state.apply_realtime_update("covers", [patch])
+                                    publish("covers", patch)
+                                    publish("outputs", patch)
+                                except Exception:
+                                    pass
+                            return ok
+
+                        if p in ("OPEN", "UP"):
+                            ok = await mgr.raiseCover(target_id)
+                            if ok:
+                                patch = {"ID": str(target_id), "STA": "UP"}
+                                try:
+                                    state.apply_realtime_update("covers", [patch])
+                                    publish("covers", patch)
+                                    publish("outputs", patch)
+                                except Exception:
+                                    pass
+                            return ok
+                        if p in ("CLOSE", "DOWN"):
+                            ok = await mgr.lowerCover(target_id)
+                            if ok:
+                                patch = {"ID": str(target_id), "STA": "DOWN"}
+                                try:
+                                    state.apply_realtime_update("covers", [patch])
+                                    publish("covers", patch)
+                                    publish("outputs", patch)
+                                except Exception:
+                                    pass
+                            return ok
+                        if p in ("STOP", "HALT"):
+                            ok = await mgr.stopCover(target_id)
+                            if ok:
+                                patch = {"ID": str(target_id), "STA": "STOP"}
+                                try:
+                                    state.apply_realtime_update("covers", [patch])
+                                    publish("covers", patch)
+                                    publish("outputs", patch)
+                                except Exception:
+                                    pass
+                            return ok
+                    except Exception:
+                        return False
+                    return False
+
+                asyncio.run_coroutine_threadsafe(_coro_cover(), loop)
                 return
 
             if domain == "scenario":
@@ -1735,8 +1819,40 @@ def main():
                 continue
             st = e.get("static") if isinstance(e.get("static"), dict) else {}
             name = st.get("DES") or e.get("name") or f"Uscita {eid}"
+            cat = str(st.get("CAT") or "").strip().upper()
             obj_id = f"{mqtt_prefix_slug}_out_{eid}"
             state_topic = f"{mqtt_prefix}/outputs/{eid}"
+
+            # Roller blinds / portoni -> cover (instead of switch)
+            if cat == "ROLL":
+                obj_id_cover = f"{obj_id}_cover"
+                payload_cover = {
+                    "name": name,
+                    "unique_id": obj_id_cover,
+                    "command_topic": f"{mqtt_prefix}/cmd/cover/{eid}",
+                    "set_position_topic": f"{mqtt_prefix}/cmd/cover/{eid}/set_position",
+                    "state_topic": state_topic,
+                    "position_topic": state_topic,
+                    "value_template": "{{ ((value_json.get('STA') or value_json.get('realtime', {}).get('STA') or '') | string | upper) }}",
+                    "position_template": "{{ ((value_json.get('POS') or value_json.get('realtime', {}).get('POS') or 0) | int) }}",
+                    "payload_open": "OPEN",
+                    "payload_close": "CLOSE",
+                    "payload_stop": "STOP",
+                    "state_open": "OPEN",
+                    "state_closed": "CLOSE",
+                    "state_opening": "UP",
+                    "state_closing": "DOWN",
+                    "state_stopped": "STOP",
+                    "availability_topic": f"{mqtt_prefix}/status",
+                    "payload_available": "online",
+                    "payload_not_available": "offline",
+                    "default_entity_id": f"cover.{obj_id}",
+                }
+                payload_cover = _apply_device(payload_cover, "outputs")
+                if _disc_publish("cover", obj_id_cover, payload_cover):
+                    published += 1
+                continue
+
             payload = {
                 "name": name,
                 "unique_id": obj_id,
