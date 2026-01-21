@@ -269,3 +269,8 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
 - Fix: callback MQTT on_disconnect compatibile con paho-mqtt v1/v2 (evita crash thread e restart).
 - File toccati: app/main.py, config.yaml, NOTES_FOR_AGENT.md
 - Versione: 5.2.38 (stabilita' MQTT dopo reboot/lag)
+
+## 5.2.39
+- Log: aggiunto timestamp (data/ora) in tutte le righe di log dell'add-on e UI GET usa logging.
+- File toccati: app/main.py, app/debug_server.py, config.yaml, NOTES_FOR_AGENT.md
+- Versione: 5.2.39 (timeline log)

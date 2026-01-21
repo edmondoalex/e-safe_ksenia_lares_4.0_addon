@@ -27,7 +27,12 @@ def _load_addon_options():
     try:
         return json.loads(options_path.read_text(encoding="utf-8"))
     except Exception as exc:
-        print(f"[WARN] Impossibile leggere {options_path}: {exc}")
+        try:
+            logging.getLogger("ksenia_lares_addon").warning(
+                "Impossibile leggere %s: %s", options_path, exc
+            )
+        except Exception:
+            print(f"[WARN] Impossibile leggere {options_path}: {exc}")
         return {}
 
 
@@ -66,7 +71,14 @@ def _create_mqtt_client():
 
 
 def main():
-    print("[INFO] Avvio add-on Ksenia Lares")
+    # Include timestamps in logs so troubleshooting can be done on a clear timeline.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    logger = logging.getLogger("ksenia_lares_addon")
+    logger.info("Avvio add-on Ksenia Lares")
 
     options = _load_addon_options()
 
@@ -118,11 +130,11 @@ def main():
     )
 
     if not ksenia_host or not ksenia_port or not ksenia_pin:
-        print("[FATAL] Config Ksenia incompleta: serve ksenia_host, ksenia_port, ksenia_pin.")
+        logger.critical(
+            "Config Ksenia incompleta: serve ksenia_host, ksenia_port, ksenia_pin."
+        )
         raise SystemExit(2)
 
-    logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
-    logger = logging.getLogger("ksenia_lares_addon")
     if mqtt_debug_verbose:
         logger.setLevel(logging.DEBUG)
         logger.info("MQTT log verboso attivato (mqtt_debug_verbose=true).")

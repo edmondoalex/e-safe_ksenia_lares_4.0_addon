@@ -2,6 +2,7 @@ import os
 import re
 from pathlib import Path
 import json
+import logging
 import threading
 import time
 import queue
@@ -12,6 +13,8 @@ UI_REV = "2026-01-12.07"
 # Keep a code-side version so the UI shows the right value even when
 # Supervisor doesn't inject / update ADDON_VERSION (common when config.yaml isn't bundled in the container image).
 CODE_VERSION = ""
+
+_UI_LOGGER = logging.getLogger("ksenia_lares_addon.ui")
 def _read_addon_version_from_config() -> str:
     # Prefer config.yaml when running from a dev checkout, so the UI version matches the repo.
     try:
@@ -13021,7 +13024,7 @@ class _Handler(BaseHTTPRequestHandler):
 
         if path in ("/security", "/security/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13033,7 +13036,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/security/partitions", "/security/partitions/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13041,7 +13044,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/security/scenarios", "/security/scenarios/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13049,7 +13052,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/security/sensors", "/security/sensors/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13057,7 +13060,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/security/reset", "/security/reset/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13065,7 +13068,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/security/info", "/security/info/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13077,7 +13080,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/security/timers", "/security/timers/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13085,7 +13088,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/security/functions", "/security/functions/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13093,7 +13096,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/security/functions/all", "/security/functions/all/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13101,7 +13104,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/security/functions/outputs", "/security/functions/outputs/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13109,7 +13112,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/security/favorites", "/security/favorites/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13117,7 +13120,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/index_debug/tag_styles", "/index_debug/tag_styles/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13125,7 +13128,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/", "/index_debug", "/index_debug/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
