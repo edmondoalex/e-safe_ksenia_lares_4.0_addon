@@ -244,3 +244,8 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
 - Fix: Security UI non blocca piu' il polling quando SSE e' connesso (evita stato vecchio/stale).
 - File toccati: app/debug_server.py, _security_page.html, config.yaml, NOTES_FOR_AGENT.md
 - Versione: 5.2.33 (polling fallback sempre attivo in Security UI)
+
+## 5.2.34
+- Fix: index_debug mantiene polling anche con SSE (evita stati vecchi quando si perde un update).
+- File toccati: app/debug_server.py, config.yaml, NOTES_FOR_AGENT.md
+- Versione: 5.2.34 (polling fallback sempre attivo in index_debug)

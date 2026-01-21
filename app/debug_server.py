@@ -3372,8 +3372,11 @@ def render_index(snapshot):
       applyTypeFilter();
       refreshTagSelectOptions();
       setInterval(refreshTagSelectOptions, 15000);
-      // Auto-refresh is always ON: prefer SSE push updates, fallback to polling.
-      if (!startSSE()) startPolling();
+      // Keep a polling fallback even when SSE is connected: SSE events are deltas
+      // and can be missed (addon restart, brief network hiccup, browser tab sleep).
+      // Polling can still be disabled via the UI toggle if desired.
+      startPolling();
+      startSSE();
       // Seed one fetch to initialize countdowns even if SSE messages are sparse.
       fetchAndUpdate();
     </script>
