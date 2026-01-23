@@ -6292,6 +6292,25 @@ def render_security_sensors(snapshot):
         return `${{d.getUTCFullYear()}}-${{pad(d.getUTCMonth()+1)}}-${{pad(d.getUTCDate())}} ${{pad(d.getUTCHours())}}:${{pad(d.getUTCMinutes())}}:${{pad(d.getUTCSeconds())}}`;
       }}
 
+      // Central clock: TIME.GMT is an epoch snapshot; it may not update often.
+      // Keep a local base and tick it so "Ora centrale" stays in sync.
+      let panelClockBaseGmt = NaN;
+      let panelClockBaseAtMs = 0;
+      let panelClockOffsetMin = 0;
+      function updateCentralClock() {{
+        try {{
+          if (!meta) return;
+          if (!Number.isFinite(panelClockBaseGmt) || panelClockBaseGmt <= 0) {{
+            meta.textContent = '-';
+            return;
+          }}
+          const ageSec = (Date.now() - Number(panelClockBaseAtMs || 0)) / 1000.0;
+          const nowGmt = panelClockBaseGmt + (Number.isFinite(ageSec) ? ageSec : 0);
+          const nowCentral = fmtPanelTs(nowGmt, panelClockOffsetMin);
+          meta.textContent = nowCentral ? ('Ora centrale: ' + nowCentral) : '-';
+        }} catch (_e) {{}}
+      }}
+
       function render(snapshot) {{
         const pt = getPanelTimeInfo(snapshot);
         const fallbackOffsetMin = -new Date().getTimezoneOffset();
@@ -6357,8 +6376,13 @@ def render_security_sensors(snapshot):
             }});
           }}
         }} catch (_e) {{}}
-        const nowCentral = (pt && Number.isFinite(pt.gmt) && pt.gmt > 0) ? fmtPanelTs(pt.gmt, offsetMin) : '';
-        meta.textContent = nowCentral ? ('Ora centrale: ' + nowCentral) : '-';
+        // Refresh base clock when the snapshot provides TIME.GMT (even if unchanged).
+        if (pt && Number.isFinite(pt.gmt) && pt.gmt > 0) {{
+          panelClockBaseGmt = Number(pt.gmt);
+          panelClockBaseAtMs = Date.now();
+          panelClockOffsetMin = offsetMin;
+        }}
+        updateCentralClock();
 
         const wsOk = !!(snapshot.meta && snapshot.meta.ws1_connected);
         if (ws1Status) {{
@@ -6424,6 +6448,12 @@ def render_security_sensors(snapshot):
       if (!startSSE()) {{
         startPolling();
       }}
+
+      // Update central time label even when no new data arrives.
+      setInterval(() => {{
+        if (document.hidden) return;
+        updateCentralClock();
+      }}, 1000);
     </script>
   </body>
 </html>"""

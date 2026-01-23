@@ -279,3 +279,8 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
 - MQTT: aggiunta discovery per cover (CAT=ROLL) e comandi MQTT cover (open/close/stop/pos).
 - File toccati: app/main.py, config.yaml, NOTES_FOR_AGENT.md
 - Versione: 5.2.40 (portoni/tapparelle visibili in HA come cover)
+
+## 5.2.41
+- UI: Ora centrale in /security/sensors ora scorre (clock locale basato su TIME.GMT).
+- File toccati: app/debug_server.py, config.yaml, NOTES_FOR_AGENT.md
+- Versione: 5.2.41 (timeline ora centrale)
