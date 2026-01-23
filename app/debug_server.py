@@ -7647,9 +7647,7 @@ def render_security_scenarios(snapshot):
       </div>
       <div class="controls">
         <div class="leftCtl">
-          <span class="chip">Solo smarthome</span>
           <input id="q" type="text" placeholder="Cerca scenario..." />
-          <label class="chip" style="cursor:pointer;"><input id="onlyVisible" type="checkbox" checked/> solo visibili</label>
         </div>
         <div class="leftCtl">
           <span class="chip" id="countChip">0</span>
@@ -7817,12 +7815,11 @@ def render_security_scenarios(snapshot):
       }}
       function applyFilter() {{
         const q = document.getElementById('q')?.value || '';
-        const onlyVisible = !!document.getElementById('onlyVisible')?.checked;
+        const onlyVisible = true;
         const items = buildSmarthomeScenarios(lastEntities, lastUiTags, onlyVisible, q);
         renderList(items);
       }}
       document.getElementById('q').addEventListener('input', () => applyFilter());
-      document.getElementById('onlyVisible').addEventListener('change', () => applyFilter());
       // Live updates (SSE), fallback polling
       let sse = null;
       function startSSE() {{
