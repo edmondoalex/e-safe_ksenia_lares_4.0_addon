@@ -6525,6 +6525,8 @@ def render_security_partitions(snapshot):
       .zlist {{ margin-top: 10px; display:flex; flex-direction: column; gap: 10px; }}
       .zrow {{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding: 12px 12px; border:1px solid rgba(255,255,255,0.08); border-radius: 12px; background: rgba(0,0,0,0.18); }}
       .zname {{ font-size: 16px; }}
+      .partToggle {{ all: unset; cursor: pointer; color: var(--fg); font-size: 18px; font-weight: 700; }}
+      .partToggle:hover {{ text-decoration: underline; }}
       .toast {{ position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: rgba(0,0,0,0.65); border: 1px solid rgba(255,255,255,0.10); color: rgba(255,255,255,0.92); padding: 10px 14px; border-radius: 12px; backdrop-filter: blur(10px); display:none; z-index: 10; }}
 
       @media (max-width: 720px) {{
@@ -6553,6 +6555,7 @@ def render_security_partitions(snapshot):
         <div class="left">
           <div class="chip" id="ws1Status">Stato: -</div>
           <button class="btn mini" id="ws1Reconnect" style="display:none;">Riconnetti</button>
+          <button class="btn mini" id="toggleZones" type="button">Espandi/Comprimi</button>
         </div>
         <div class="chip" id="lastUp">-</div>
       </div>
@@ -6566,18 +6569,11 @@ def render_security_partitions(snapshot):
       const toastEl = document.getElementById('toast');
       const ws1Status = document.getElementById('ws1Status');
       const ws1Reconnect = document.getElementById('ws1Reconnect');
-      let showAll = document.getElementById('showAll');
-      if (!showAll) {{
-        const controls = document.querySelector('.controls');
-        const chip = document.createElement('div');
-        chip.className = 'chip';
-        chip.innerHTML = '<input id="showAll" type="checkbox" checked/> <label for="showAll">Mostra tutte</label>';
-        if (controls && lastUp) controls.insertBefore(chip, lastUp);
-        showAll = document.getElementById('showAll');
-      }}
-      if (showAll) showAll.checked = true;
+      const toggleZonesBtn = document.getElementById('toggleZones');
       if (lastUp) lastUp.textContent = 'Aggiornato: -';
       if (ws1Status) ws1Status.textContent = 'Stato: -';
+
+      const expandedPids = new Set();
 
       async function reconnectWs1() {{
         try {{
@@ -6844,7 +6840,6 @@ def render_security_partitions(snapshot):
 
       function render(snapshot) {{
         const {{ parts, partById, zonesByPid }} = group(snapshot);
-        const all = !!(showAll && showAll.checked);
 
         const sorted = parts.slice().sort((a,b) => (Number(a.id)||0) - (Number(b.id)||0));
         const blocks = [];
@@ -6855,7 +6850,6 @@ def render_security_partitions(snapshot):
           const st = p.static || {{}};
           const ps = partitionState(rt);
           const zlist = (zonesByPid.get(pid) || []).slice().sort((a,b) => a.name.localeCompare(b.name, 'it', {{sensitivity:'base'}}));
-          if (!all && !ps.armed) continue;
 
           const t = (rt.T !== undefined && rt.T !== null) ? String(rt.T) : (rt.TIME !== undefined && rt.TIME !== null) ? String(rt.TIME) : '';
           const extra = (t && t !== '0' && t !== '0:00' && t !== '0.00') ? ('Countdown: ' + t) : '';
@@ -6863,13 +6857,15 @@ def render_security_partitions(snapshot):
             ? `<button class="btn mini" data-pid="${{escapeHtml(pid)}}" data-act="disarm" type="button">Disinserisci</button>`
             : `<button class="btn mini" data-pid="${{escapeHtml(pid)}}" data-act="arm_delay" type="button">Inserisci</button>
                <button class="btn mini" data-pid="${{escapeHtml(pid)}}" data-act="arm_instant" type="button">Istantanea</button>`;
+          const expanded = expandedPids.has(pid);
+          const arrow = expanded ? '▾' : '▸';
 
           blocks.push(`<div class="group">
-            
+             
             <div class="list">
               <div class="row">
                 <div>
-                  <div class="name">${{escapeHtml(name)}}</div>
+                  <div class="name"><button class="partToggle" type="button" data-toggle-pid="${{escapeHtml(pid)}}">${{escapeHtml(arrow + ' ' + name)}}</button></div>
                   <div class="sub">${{extra ? escapeHtml(extra) : ''}}</div>
                 </div>
                 <div class="actions">
@@ -6877,22 +6873,26 @@ def render_security_partitions(snapshot):
                   ${{btns}}
                 </div>
               </div>
-              <div class="row" style="align-items:flex-start;">
-                <div style="flex:1;">
-            <div class="sub">Zone associate (${{zlist.length}})</div>
-                  <div class="zlist">
-                    ${{
-                      zlist.map(z => {{
-                        const zs = (zoneStatus(z.rt).badges || [{{level:'ok', text:'Normale'}}])[0];
-                        return `<div class="zrow">
-                          <div class="zname">${{escapeHtml(z.name)}}</div>
-                          <span class="${{badgeClass(zs.level)}}">${{escapeHtml(zs.text)}}</span>
-                        </div>`;
-                      }}).join('') || `<div class="sub" style="padding:6px 0;">Nessuna zona associata</div>`
-                    }}
-                  </div>
-                </div>
-              </div>
+              ${{
+                expanded
+                  ? `<div class="row" style="align-items:flex-start;">
+                       <div style="flex:1;">
+                         <div class="sub">Zone associate (${{zlist.length}})</div>
+                         <div class="zlist">
+                           ${{
+                             zlist.map(z => {{
+                               const zs = (zoneStatus(z.rt).badges || [{{level:'ok', text:'Normale'}}])[0];
+                               return `<div class="zrow">
+                                 <div class="zname">${{escapeHtml(z.name)}}</div>
+                                 <span class="${{badgeClass(zs.level)}}">${{escapeHtml(zs.text)}}</span>
+                               </div>`;
+                             }}).join('') || `<div class="sub" style="padding:6px 0;">Nessuna zona associata</div>`
+                           }}
+                         </div>
+                       </div>
+                     </div>`
+                  : ''
+              }}
             </div>
           </div>`);
         }}
@@ -6900,7 +6900,7 @@ def render_security_partitions(snapshot):
         outEl.innerHTML = blocks.join('') || '<div class="group"><div class="gtitle">Nessuna partizione</div></div>';
         const lu = snapshot.meta && snapshot.meta.last_update ? new Date(snapshot.meta.last_update * 1000) : null;
         const ts = lu ? lu.toLocaleTimeString('it-IT') : new Date().toLocaleTimeString('it-IT');
-        if (lastUp) lastUp.textContent = `Aggiornato: ${{ts}} | Partizioni: ${{parts.length}} | Mostrate: ${{blocks.length}}`;
+        if (lastUp) lastUp.textContent = `Aggiornato: ${{ts}} | Partizioni: ${{parts.length}}`;
 
         const wsOk = !!(snapshot.meta && snapshot.meta.ws1_connected);
         if (ws1Status) {{
@@ -6947,9 +6947,31 @@ def render_security_partitions(snapshot):
       startSSE();
       setInterval(fetchSnap, 2000);
       document.addEventListener('visibilitychange', () => {{ if (!document.hidden) fetchSnap(); }});
-      if (showAll) showAll.addEventListener('change', () => {{ if (lastSnap) render(lastSnap); else fetchSnap(); }});
+      if (toggleZonesBtn) toggleZonesBtn.addEventListener('click', () => {{
+        if (!lastSnap || !lastSnap.entities) return;
+        const pids = (lastSnap.entities || [])
+          .filter(e => String(e.type||'').toLowerCase() === 'partitions')
+          .map(e => String(e.id));
+        const allExpanded = pids.length > 0 && pids.every(pid => expandedPids.has(pid));
+        expandedPids.clear();
+        if (!allExpanded) {{
+          for (const pid of pids) expandedPids.add(pid);
+        }}
+        render(lastSnap);
+      }});
 
       outEl.addEventListener('click', async (ev) => {{
+        const tog = ev.target && ev.target.closest ? ev.target.closest('button[data-toggle-pid]') : null;
+        if (tog) {{
+          ev.preventDefault();
+          const pid = String(tog.getAttribute('data-toggle-pid') || '');
+          if (pid) {{
+            if (expandedPids.has(pid)) expandedPids.delete(pid);
+            else expandedPids.add(pid);
+            if (lastSnap) render(lastSnap);
+          }}
+          return;
+        }}
         const btn = ev.target && ev.target.closest ? ev.target.closest('button[data-pid][data-act]') : null;
         if (!btn) return;
         ev.preventDefault();

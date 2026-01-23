@@ -289,3 +289,8 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
 - UI: rimossa 'Ora centrale' dalla pagina /security/sensors (non affidabile/non indispensabile).
 - File toccati: app/debug_server.py, config.yaml, NOTES_FOR_AGENT.md
 - Versione: 5.2.42 (rimozione ora centrale UI)
+
+## 5.2.43
+- UI: pagina Partizioni apre compressa (zone nascoste), click sul titolo espande/comprime, aggiunto tasto 'Espandi/Comprimi', rimossa opzione 'Mostra tutte'.
+- File toccati: app/debug_server.py, config.yaml, NOTES_FOR_AGENT.md
+- Versione: 5.2.43 (migliorie UI partizioni)
