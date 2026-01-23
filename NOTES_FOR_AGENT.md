@@ -299,3 +299,8 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
 - UI: pagina Scenari rimossa etichetta 'Solo smarthome' e forzato filtro solo visibili; ricerca scenario resta attiva.
 - File toccati: app/debug_server.py, config.yaml, NOTES_FOR_AGENT.md
 - Versione: 5.2.44 (scenari solo visibili + search)
+
+## 5.2.45
+- UI: pagina Programmatori orari rimossi Cerca, Ultimo aggiornamento e filtro Solo attivi.
+- File toccati: app/debug_server.py, config.yaml, NOTES_FOR_AGENT.md
+- Versione: 5.2.45 (semplifica UI programmatori)

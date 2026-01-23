@@ -9313,12 +9313,7 @@ def render_security_timers(snapshot):
         <img src="/assets/e-safe_scr.png" alt="e-safe" style="height:34px;opacity:0.92;pointer-events:none;"/>
       </div>
       <div class="title">Programmatori orari</div>
-      <div class="meta">Ultimo aggiornamento: <span id="lastUpdate">-</span> · Totale: <span id="count">0</span></div>
-
-      <div class="toolbar">
-        <input id="q" class="q" placeholder="Cerca (descrizione, scenario, orario, giorni)..." />
-        <label class="chip"><input id="onlyOn" type="checkbox"/> Solo attivi</label>
-      </div>
+      <div class="meta">Totale: <span id="count">0</span></div>
 
       <div class="panel" id="panelSchedule">
         <div class="list" id="list"></div>
@@ -9412,29 +9407,10 @@ def render_security_timers(snapshot):
         }}
         ids.sort((a,b) => (parseInt(a,10)||0) - (parseInt(b,10)||0));
         document.getElementById('count').textContent = String(ids.length);
-        const m = payload.meta && typeof payload.meta === 'object' ? payload.meta : null;
-        const ts = m && m.last_update ? Number(m.last_update) : 0;
-        document.getElementById('lastUpdate').textContent = ts ? new Date(ts * 1000).toISOString().replace('T',' ').slice(0,19) : '-';
       }}
 
       function filteredIds() {{
-        const q = String(document.getElementById('q').value || '').trim().toLowerCase();
-        const onlyOn = !!document.getElementById('onlyOn').checked;
-        const out = [];
-        for (const id of ids) {{
-          const it = timersById.get(id);
-          if (!it) continue;
-          if (onlyOn && !isEnabled(it)) continue;
-          if (!q) {{ out.push(id); continue; }}
-          const hay = (
-            String(it.DES||'') + ' ' +
-            String(scenarioName(it)||'') + ' ' +
-            String(timeStr(it)||'') + ' ' +
-            String(daysStr(it)||'')
-          ).toLowerCase();
-          if (hay.includes(q)) out.push(id);
-        }}
-        return out;
+        return ids.slice();
       }}
 
       function renderList() {{
@@ -9707,9 +9683,6 @@ def render_security_timers(snapshot):
           try {{ msg = JSON.parse(ev.data || '{{}}'); }} catch (_e) {{ msg = null; }}
           if (!msg) return;
           const meta = msg.meta || null;
-          if (meta && meta.last_update) {{
-            document.getElementById('lastUpdate').textContent = new Date(Number(meta.last_update) * 1000).toISOString().replace('T',' ').slice(0,19);
-          }}
           const ents = Array.isArray(msg.entities) ? msg.entities : [];
           let changed = false;
           for (const e of ents) {{
@@ -9731,8 +9704,6 @@ def render_security_timers(snapshot):
         return true;
       }}
 
-      document.getElementById('q').addEventListener('input', () => render());
-      document.getElementById('onlyOn').addEventListener('change', () => render());
       parseInit();
       render();
       startSSE();
