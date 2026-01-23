@@ -284,3 +284,8 @@ Nota: evitare `object_id` in discovery (deprecato HA 2026.4+). Preferire `defaul
 - UI: Ora centrale in /security/sensors ora scorre (clock locale basato su TIME.GMT).
 - File toccati: app/debug_server.py, config.yaml, NOTES_FOR_AGENT.md
 - Versione: 5.2.41 (timeline ora centrale)
+
+## 5.2.42
+- UI: rimossa 'Ora centrale' dalla pagina /security/sensors (non affidabile/non indispensabile).
+- File toccati: app/debug_server.py, config.yaml, NOTES_FOR_AGENT.md
+- Versione: 5.2.42 (rimozione ora centrale UI)
