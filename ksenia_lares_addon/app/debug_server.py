@@ -326,7 +326,12 @@ class LaresState:
                     if gsm:
                         changed.append(self._upsert("gsm", gsm.get("ID"), {"realtime": gsm}, now))
             elif entity_type == "thermostats" and isinstance(updates, list):
+                known = self._known_thermostat_ids_locked()
                 for item in updates:
+                    if known:
+                        iid = self._norm_entity_id(item.get("ID") if isinstance(item, dict) else None)
+                        if iid not in known:
+                            continue
                     changed.append(
                         self._upsert("thermostats", item.get("ID"), {"realtime": item}, now)
                     )
@@ -343,6 +348,35 @@ class LaresState:
         changed = [c for c in changed if c]
         if changed:
             self._publish_event({"type": "update", "meta": {"last_update": now}, "entities": changed})
+
+    def _norm_entity_id(self, value):
+        if value is None:
+            return None
+        try:
+            if isinstance(value, int):
+                return str(value)
+            s = str(value).strip()
+            if not s:
+                return None
+            if s.isdigit():
+                return str(int(s))
+            return s
+        except Exception:
+            return str(value)
+
+    def _known_thermostat_ids_locked(self):
+        out = set()
+        for key, ent in (self._entities or {}).items():
+            if not str(key or "").startswith("thermostats:"):
+                continue
+            if not isinstance(ent, dict):
+                continue
+            st = ent.get("static")
+            if isinstance(st, dict) and st.get("ID") is not None:
+                nid = self._norm_entity_id(st.get("ID"))
+                if nid is not None:
+                    out.add(nid)
+        return out
 
     def apply_static_update(self, entity_type, updates):
         now = time.time()
@@ -534,6 +568,7 @@ class LaresState:
 
     def _ingest_realtime_payload(self, payload, now):
         changed = []
+        known_therm_ids = self._known_thermostat_ids_locked()
         for item in (payload.get("STATUS_OUTPUTS") or []):
             changed.append(self._upsert("outputs", item.get("ID"), {"realtime": item}, now))
         for item in (payload.get("STATUS_BUS_HA_SENSORS") or []):
@@ -552,8 +587,16 @@ class LaresState:
             if gsm:
                 changed.append(self._upsert("gsm", gsm.get("ID"), {"realtime": gsm}, now))
         for item in (payload.get("STATUS_TEMPERATURES") or []):
+            if known_therm_ids:
+                iid = self._norm_entity_id(item.get("ID") if isinstance(item, dict) else None)
+                if iid not in known_therm_ids:
+                    continue
             changed.append(self._upsert("thermostats", item.get("ID"), {"realtime": item}, now))
         for item in (payload.get("STATUS_HUMIDITY") or []):
+            if known_therm_ids:
+                iid = self._norm_entity_id(item.get("ID") if isinstance(item, dict) else None)
+                if iid not in known_therm_ids:
+                    continue
             changed.append(self._upsert("thermostats", item.get("ID"), {"realtime": item}, now))
         return [c for c in changed if c]
 

@@ -200,3 +200,11 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/websocketmanager.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Fix domus in termostati (snapshot/UI)
+- Aggiunto filtro in `LaresState` per accettare realtime termostati (`STATUS_TEMPERATURES`/`STATUS_HUMIDITY`) solo per ID presenti nei termostati statici (`CFG_THERMOSTATS`), sia in ingest iniziale che negli update realtime.
+- Aggiunta normalizzazione ID termostati nel backend UI per evitare mismatch `033` vs `33`.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.14` (bugfix classificazione DOMUS/termostati in snapshot e UI admin).
+
+File toccati:
+- ksenia_lares_addon/app/debug_server.py
+- ksenia_lares_addon/config.yaml
