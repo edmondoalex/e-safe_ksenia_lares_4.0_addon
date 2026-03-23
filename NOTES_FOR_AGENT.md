@@ -406,3 +406,11 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/main.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Fallback lettura selezione termostati da /data/ui_tags.json
+- Aggiunta fallback nel manager WS: se la mappa runtime termostati e' vuota, legge `domus_thermostats` da `/data/ui_tags.json` e usa quella per filtrare i termostati.
+- Incluso mapping automatico DOMUS->termostato reale (`ID_TH`) anche in fallback, mantenendo nome selezionato in UI.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.66` (fix: Domus selezionati ma lista termostati vuota).
+
+File toccati:
+- ksenia_lares_addon/app/websocketmanager.py
+- ksenia_lares_addon/config.yaml

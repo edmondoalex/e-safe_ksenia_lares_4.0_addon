@@ -144,8 +144,50 @@ class WebSocketManager:
                 out[nid] = name
         self._extra_thermostat_names = out
 
+    def _load_ui_domus_thermostats(self, path="/data/ui_tags.json") -> dict[str, str]:
+        out = {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                raw = json.load(f) or {}
+        except Exception:
+            return out
+        if not isinstance(raw, dict):
+            return out
+        m = raw.get("domus_thermostats")
+        if not isinstance(m, dict):
+            return out
+        for k, v in m.items():
+            nid = self._norm_id(k)
+            if nid is None:
+                continue
+            enabled = True
+            name = ""
+            if isinstance(v, dict):
+                enabled = str(v.get("enabled", True)).strip().lower() not in ("0", "false", "no", "off")
+                name = str(v.get("name") or "").strip()
+            if not enabled:
+                continue
+            out[nid] = name or f"Thermostat {nid}"
+        return out
+
+    def _effective_selected_and_names(self) -> tuple[set[str], dict[str, str]]:
+        names = dict(self._extra_thermostat_names or {})
+        if not names:
+            names = self._load_ui_domus_thermostats()
+        selected = set(names.keys())
+        # If UI holds DOMUS IDs, also include mapped thermostat IDs when available.
+        s2t = self._sensor_to_thermostat_map()
+        for sid, tid in s2t.items():
+            if sid not in names:
+                continue
+            if tid not in names:
+                names[tid] = names.get(sid) or f"Thermostat {tid}"
+            selected.add(tid)
+        return selected, names
+
     def get_selected_thermostat_ids(self) -> set[str]:
-        return set(self._extra_thermostat_names.keys())
+        selected, _names = self._effective_selected_and_names()
+        return selected
 
     def _sensor_to_thermostat_map(self) -> dict[str, str]:
         out = {}
@@ -164,7 +206,7 @@ class WebSocketManager:
     def normalize_thermostat_update(self, item: dict) -> dict | None:
         if not isinstance(item, dict):
             return None
-        selected = self.get_selected_thermostat_ids()
+        selected, _names = self._effective_selected_and_names()
         if not selected:
             return None
         xid = self._norm_id(item.get("ID"))
@@ -2221,7 +2263,7 @@ class WebSocketManager:
         if not self._readData and not self._realtimeInitialData:
             self._logger.error("Initial data not received in getThermostats")
             return []
-        selected_ids = self.get_selected_thermostat_ids()
+        selected_ids, sel_names = self._effective_selected_and_names()
         if not selected_ids:
             return []
 
@@ -2282,8 +2324,8 @@ class WebSocketManager:
                 merged.update(rt)
             if isinstance(hum, dict):
                 merged.update(hum)
-            if "DES" not in merged and tid in self._extra_thermostat_names:
-                merged["DES"] = self._extra_thermostat_names.get(tid)
+            if "DES" not in merged and tid in sel_names:
+                merged["DES"] = sel_names.get(tid)
             if "DES" not in merged and tid in name_by_id:
                 merged["DES"] = name_by_id.get(tid)
             out.append(merged)
