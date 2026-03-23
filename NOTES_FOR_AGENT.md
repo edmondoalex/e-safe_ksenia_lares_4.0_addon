@@ -232,3 +232,11 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/main.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Domus: temperatura, umidita, luminosita
+- Estesa discovery MQTT per `domus`: oltre al sensore stato, pubblicati sensori dedicati `temperatura`, `umidita`, `luminosita` per ogni ID DOMUS.
+- Template robusti: lettura valori sia da `DOMUS.TEM/HUM/LHT` sia da root payload (`TEM/HUM/LHT`) per compatibilita'.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.18` (feature sensori Domus meteo/lux).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/config.yaml

@@ -1285,7 +1285,7 @@ def main():
             if _disc_publish("switch", obj_id, payload):
                 published += 1
 
-        # Domus -> sensor (stato bus domotico)
+        # Domus -> sensors (stato + temperatura + umidita + luminosita)
         for e in entities:
             et = str(e.get("type") or "").lower()
             if et != "domus":
@@ -1310,6 +1310,47 @@ def main():
             }
             payload = _apply_device(payload, "domus")
             if _disc_publish("sensor", obj_id, payload):
+                published += 1
+            obj_temp = f"{mqtt_prefix_slug}_domus_{eid}_temperature"
+            payload_temp = {
+                "name": f"{name} Temperatura",
+                "unique_id": obj_temp,
+                "state_topic": state_topic,
+                "value_template": "{{ value_json.get('DOMUS', {}).get('TEM', value_json.get('TEM', '')) }}",
+                "unit_of_measurement": "C",
+                "device_class": "temperature",
+                "default_entity_id": f"sensor.{obj_temp}",
+            }
+            payload_temp = _apply_device(payload_temp, "domus")
+            if _disc_publish("sensor", obj_temp, payload_temp):
+                published += 1
+
+            obj_hum = f"{mqtt_prefix_slug}_domus_{eid}_humidity"
+            payload_hum = {
+                "name": f"{name} Umidita",
+                "unique_id": obj_hum,
+                "state_topic": state_topic,
+                "value_template": "{{ value_json.get('DOMUS', {}).get('HUM', value_json.get('HUM', '')) }}",
+                "unit_of_measurement": "%",
+                "device_class": "humidity",
+                "default_entity_id": f"sensor.{obj_hum}",
+            }
+            payload_hum = _apply_device(payload_hum, "domus")
+            if _disc_publish("sensor", obj_hum, payload_hum):
+                published += 1
+
+            obj_lux = f"{mqtt_prefix_slug}_domus_{eid}_illuminance"
+            payload_lux = {
+                "name": f"{name} Luminosita",
+                "unique_id": obj_lux,
+                "state_topic": state_topic,
+                "value_template": "{{ value_json.get('DOMUS', {}).get('LHT', value_json.get('LHT', '')) }}",
+                "unit_of_measurement": "lx",
+                "device_class": "illuminance",
+                "default_entity_id": f"sensor.{obj_lux}",
+            }
+            payload_lux = _apply_device(payload_lux, "domus")
+            if _disc_publish("sensor", obj_lux, payload_lux):
                 published += 1
 
         # Scenari -> button (solo chiamata)
@@ -2754,6 +2795,9 @@ def main():
                                 out.append(("binary_sensor", f"{pf}_out_{eid}"))
                             elif et == "domus":
                                 out.append(("sensor", f"{pf}_domus_{eid}"))
+                                out.append(("sensor", f"{pf}_domus_{eid}_temperature"))
+                                out.append(("sensor", f"{pf}_domus_{eid}_humidity"))
+                                out.append(("sensor", f"{pf}_domus_{eid}_illuminance"))
                             elif et == "scenarios":
                                 out.append(("script", f"{pf}_scen_{eid}"))
                                 out.append(("button", f"{pf}_scen_{eid}"))
