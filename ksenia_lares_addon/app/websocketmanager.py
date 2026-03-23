@@ -173,10 +173,18 @@ class WebSocketManager:
             m = raw.get("domus_thermostats")
             if not isinstance(m, dict):
                 continue
+            mm = raw.get("domus_thermostat_map")
+            if not isinstance(mm, dict):
+                mm = {}
             for k, v in m.items():
                 nid = self._norm_id(k)
                 if nid is None:
                     continue
+                mapped = None
+                try:
+                    mapped = self._norm_id(mm.get(str(k).strip()))
+                except Exception:
+                    mapped = None
                 enabled = True
                 name = ""
                 if isinstance(v, dict):
@@ -184,7 +192,8 @@ class WebSocketManager:
                     name = str(v.get("name") or "").strip()
                 if not enabled:
                     continue
-                out[nid] = name or f"Thermostat {nid}"
+                tid = mapped or nid
+                out[tid] = name or f"Thermostat {tid}"
             if out:
                 break
         return out
