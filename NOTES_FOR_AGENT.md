@@ -192,3 +192,11 @@ File toccati:
 
 File toccati:
 - repository.json
+## 2026-03-23 - Fix domus/termostati
+- Fix classificazione realtime: `STATUS_TEMPERATURES` e `STATUS_HUMIDITY` ora vengono inoltrati ai termostati solo per ID presenti in `CFG_THERMOSTATS` (evita che sensori DOMUS finiscano nei termostati in UI admin e MQTT).
+- Fix merge termostati: `getThermostats()` usa ID normalizzati e, se `CFG_THERMOSTATS` esiste, limita l'elenco a quei soli ID.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.13` (bugfix classificazione domus vs termostati).
+
+File toccati:
+- ksenia_lares_addon/app/websocketmanager.py
+- ksenia_lares_addon/config.yaml

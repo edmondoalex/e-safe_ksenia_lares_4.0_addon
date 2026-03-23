@@ -135,6 +135,32 @@ class WebSocketManager:
             out["TOF"] = {k: tof.get(k) for k in ("T", "E")}
         return out
 
+    def _norm_id(self, value):
+        if value is None:
+            return None
+        s = str(value).strip()
+        if not s:
+            return None
+        if s.isdigit():
+            try:
+                return str(int(s))
+            except Exception:
+                return s
+        return s
+
+    def _known_thermostat_ids(self) -> set[str]:
+        cfg_list = (self._readData or {}).get("CFG_THERMOSTATS") or []
+        if not isinstance(cfg_list, list):
+            return set()
+        out = set()
+        for item in cfg_list:
+            if not isinstance(item, dict):
+                continue
+            nid = self._norm_id(item.get("ID"))
+            if nid is not None:
+                out.add(nid)
+        return out
+
     def set_on_reconnect(self, callback):
         """
         Register an async callback called after (re)connect completes initial sync.
@@ -976,6 +1002,13 @@ class WebSocketManager:
             if "STATUS_TEMPERATURES" in data:
                 temps = data["STATUS_TEMPERATURES"]
                 self._logger.debug("Updating state for temperatures: %s", temps)
+                if isinstance(temps, list):
+                    known = self._known_thermostat_ids()
+                    if known:
+                        temps = [
+                            x for x in temps
+                            if isinstance(x, dict) and self._norm_id(x.get("ID")) in known
+                        ]
                 if self._realtimeInitialData is None:
                     self._realtimeInitialData = {}
                 if "PAYLOAD" not in self._realtimeInitialData:
@@ -986,6 +1019,13 @@ class WebSocketManager:
             if "STATUS_HUMIDITY" in data:
                 hum = data["STATUS_HUMIDITY"]
                 self._logger.debug("Updating state for humidity: %s", hum)
+                if isinstance(hum, list):
+                    known = self._known_thermostat_ids()
+                    if known:
+                        hum = [
+                            x for x in hum
+                            if isinstance(x, dict) and self._norm_id(x.get("ID")) in known
+                        ]
                 if self._realtimeInitialData is None:
                     self._realtimeInitialData = {}
                 if "PAYLOAD" not in self._realtimeInitialData:
@@ -1910,15 +1950,31 @@ class WebSocketManager:
         if not isinstance(hums, list):
             hums = []
 
-        temp_by_id = {str(x.get("ID")): x for x in temps if isinstance(x, dict) and x.get("ID") is not None}
-        hum_by_id = {str(x.get("ID")): x for x in hums if isinstance(x, dict) and x.get("ID") is not None}
+        temp_by_id = {}
+        for x in temps:
+            if not isinstance(x, dict):
+                continue
+            nid = self._norm_id(x.get("ID"))
+            if nid is not None:
+                temp_by_id[nid] = x
+        hum_by_id = {}
+        for x in hums:
+            if not isinstance(x, dict):
+                continue
+            nid = self._norm_id(x.get("ID"))
+            if nid is not None:
+                hum_by_id[nid] = x
 
         ids = set()
         for x in cfg_list:
             if isinstance(x, dict) and x.get("ID") is not None:
-                ids.add(str(x.get("ID")))
-        ids.update(temp_by_id.keys())
-        ids.update(hum_by_id.keys())
+                nid = self._norm_id(x.get("ID"))
+                if nid is not None:
+                    ids.add(nid)
+        if not ids:
+            # Fallback only when CFG_THERMOSTATS is missing.
+            ids.update(temp_by_id.keys())
+            ids.update(hum_by_id.keys())
 
         out = []
         for tid in sorted(ids, key=lambda s: int(s) if str(s).isdigit() else str(s)):
