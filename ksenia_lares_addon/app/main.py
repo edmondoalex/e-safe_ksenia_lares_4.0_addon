@@ -2760,6 +2760,32 @@ def main():
         except Exception as exc:
             logger.error(f"Debug initial ingest error (reconnect): {exc}")
         try:
+            therms = await manager.getThermostats()
+            keep_ids = []
+            if isinstance(therms, list):
+                for item in therms:
+                    if not isinstance(item, dict):
+                        continue
+                    tid = item.get("ID")
+                    if tid is None:
+                        continue
+                    try:
+                        keep_ids.append(str(int(tid)))
+                    except Exception:
+                        keep_ids.append(str(tid))
+                removed = state.prune_entity_ids("thermostats", keep_ids)
+                state.apply_static_update("thermostats", therms)
+                if removed:
+                    cleared = _clear_thermostat_discovery(removed)
+                    if cleared:
+                        logger.info(
+                            "Thermostat discovery cleanup (reconnect sync): removed=%s cleared=%s",
+                            removed,
+                            cleared,
+                        )
+        except Exception as exc:
+            logger.error("Thermostat selection sync failed on reconnect: %s", exc)
+        try:
             if icon_notifier.enabled():
                 icon_notifier.maybe_notify(state.snapshot())
         except Exception as exc:
@@ -4417,9 +4443,44 @@ def main():
         await manager.wait_for_initial_data(timeout=30)
 
         try:
+            latest_overrides = _domus_thermostat_overrides_from_data(_load_ui_tags_file())
+            resolved_overrides = _resolve_domus_thermostat_overrides(
+                latest_overrides, getattr(manager, "_readData", None)
+            )
+            manager.set_extra_thermostat_names(resolved_overrides)
+        except Exception as exc:
+            logger.error("resolve/set domus thermostat overrides failed on startup: %s", exc)
+
+        try:
             state.set_initial_data(getattr(manager, "_readData", None), getattr(manager, "_realtimeInitialData", None))
         except Exception as exc:
             logger.error(f"Debug initial ingest error: {exc}")
+        try:
+            therms = await manager.getThermostats()
+            keep_ids = []
+            if isinstance(therms, list):
+                for item in therms:
+                    if not isinstance(item, dict):
+                        continue
+                    tid = item.get("ID")
+                    if tid is None:
+                        continue
+                    try:
+                        keep_ids.append(str(int(tid)))
+                    except Exception:
+                        keep_ids.append(str(tid))
+                removed = state.prune_entity_ids("thermostats", keep_ids)
+                state.apply_static_update("thermostats", therms)
+                if removed:
+                    cleared = _clear_thermostat_discovery(removed)
+                    if cleared:
+                        logger.info(
+                            "Thermostat discovery cleanup (startup sync): removed=%s cleared=%s",
+                            removed,
+                            cleared,
+                        )
+        except Exception as exc:
+            logger.error("Thermostat selection sync failed on startup: %s", exc)
         try:
             publish_discovery(state.snapshot())
             try:

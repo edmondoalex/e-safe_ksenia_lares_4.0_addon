@@ -374,3 +374,11 @@ File toccati:
 - ksenia_lares_addon/app/websocketmanager.py
 - ksenia_lares_addon/app/debug_server.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Sync termostati selezionati anche a startup/reconnect
+- Aggiunto sync esplicito dei termostati selezionati Domus in fase di startup e reconnect: dopo l'ingest iniziale vengono potati i termostati non selezionati e mantenuti solo quelli attivi in `domus_thermostats`.
+- Applicato anche cleanup discovery climate dei termostati rimossi durante questo sync, per evitare che restino visibili tutti dopo riavvio.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.62` (fix: dopo selezione Domus continuavano a comparire tutti i termostati).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/config.yaml
