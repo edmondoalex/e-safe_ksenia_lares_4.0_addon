@@ -4,4 +4,4 @@
 - File toccati:
   - `app/debug_server.py`
 - Versione (`config.yaml`):
-  - non incrementata (fix interno senza modifiche di API/config).
+  - incrementata a 5.2.71 per includere il fix sui termostati.
