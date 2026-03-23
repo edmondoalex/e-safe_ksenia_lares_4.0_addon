@@ -224,3 +224,11 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/main.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Ripristino gruppo MQTT Domus
+- Aggiunta discovery MQTT per entita `domus` come `sensor` (`*_domus_<id>`) con attributi JSON e raggruppamento device `Domus`.
+- Aggiornato `disc_devices` con gruppo `domus` per mostrare il dispositivo `e-safe Domus` in HA.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.17` (ripristino gruppo/device Domus in MQTT discovery).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/config.yaml

@@ -1085,6 +1085,7 @@ def main():
             "zones": _disc_device(snapshot, "zones", "Sensori"),
             "partitions": _disc_device(snapshot, "partitions", "Partizioni"),
             "outputs": _disc_device(snapshot, "outputs", "Uscite"),
+            "domus": _disc_device(snapshot, "domus", "Domus"),
             "scenarios": _disc_device(snapshot, "scenarios", "Scenari"),
             "thermostats": _disc_device(snapshot, "thermostats", "Termostati"),
             "schedulers": _disc_device(snapshot, "schedulers", "Programmatori"),
@@ -1282,6 +1283,33 @@ def main():
             }
             payload = _apply_device(payload, "outputs")
             if _disc_publish("switch", obj_id, payload):
+                published += 1
+
+        # Domus -> sensor (stato bus domotico)
+        for e in entities:
+            et = str(e.get("type") or "").lower()
+            if et != "domus":
+                continue
+            _inc(et)
+            try:
+                eid = str(int(e.get("id")))
+            except Exception:
+                continue
+            st = e.get("static") if isinstance(e.get("static"), dict) else {}
+            name = st.get("DES") or e.get("name") or f"Domus {eid}"
+            obj_id = f"{mqtt_prefix_slug}_domus_{eid}"
+            state_topic = f"{mqtt_prefix}/domus/{eid}"
+            payload = {
+                "name": name,
+                "unique_id": obj_id,
+                "state_topic": state_topic,
+                "value_template": "{{ value_json.get('STA', '') }}",
+                "json_attributes_topic": state_topic,
+                "icon": "mdi:home-assistant",
+                "default_entity_id": f"sensor.{obj_id}",
+            }
+            payload = _apply_device(payload, "domus")
+            if _disc_publish("sensor", obj_id, payload):
                 published += 1
 
         # Scenari -> button (solo chiamata)
@@ -2724,6 +2752,8 @@ def main():
                                 out.append(("switch", f"{pf}_out_{eid}"))
                                 # Rimuovi anche eventuali vecchi binary_sensor_<out> lasciati da versioni precedenti.
                                 out.append(("binary_sensor", f"{pf}_out_{eid}"))
+                            elif et == "domus":
+                                out.append(("sensor", f"{pf}_domus_{eid}"))
                             elif et == "scenarios":
                                 out.append(("script", f"{pf}_scen_{eid}"))
                                 out.append(("button", f"{pf}_scen_{eid}"))
