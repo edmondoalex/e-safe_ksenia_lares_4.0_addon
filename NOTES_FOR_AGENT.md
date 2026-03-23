@@ -382,3 +382,11 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/main.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Stop ingest termostati completi da READ iniziale
+- In `LaresState._ingest_read_data` rimosso ingest diretto di `CFG_THERMOSTATS`: evitata la ricreazione automatica di tutti i termostati in UI appena parte il backend.
+- I termostati ora entrano nello stato solo tramite sync filtrato (`manager.getThermostats`) gia' limitato ai Domus attivati.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.63` (fix: continuavano a comparire tutti i termostati nonostante selezione Domus).
+
+File toccati:
+- ksenia_lares_addon/app/debug_server.py
+- ksenia_lares_addon/config.yaml

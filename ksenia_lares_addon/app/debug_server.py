@@ -642,8 +642,8 @@ class LaresState:
             gsm = _gsm_from_connection_item(item)
             if gsm:
                 changed.append(self._upsert("gsm", gsm.get("ID"), {"static": gsm}, now))
-        for item in (read_data.get("CFG_THERMOSTATS") or []):
-            changed.append(self._upsert("thermostats", item.get("ID"), {"static": item}, now))
+        # Thermostats are synced explicitly by main.py using filtered
+        # manager.getThermostats(); avoid ingesting the full CFG list here.
         for item in (read_data.get("CFG_ACCOUNTS") or []):
             changed.append(self._upsert("accounts", item.get("ID"), {"static": item}, now))
         return [c for c in changed if c]
