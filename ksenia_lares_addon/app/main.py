@@ -65,51 +65,33 @@ def _create_mqtt_client():
         return mqtt.Client()
 
 
-def _parse_domus_thermostat_overrides(raw_value, logger=None):
+def _load_domus_thermostat_overrides_from_ui_tags(path="/data/ui_tags.json"):
     out = {}
-    if raw_value in (None, "", "[]", "{}"):
-        return out
     try:
-        parsed = raw_value if isinstance(raw_value, (dict, list)) else json.loads(str(raw_value))
-    except Exception as exc:
-        if logger:
-            logger.error("Invalid domus_thermostat_overrides JSON: %s", exc)
+        p = Path(path)
+        if not p.exists():
+            return out
+        raw = json.loads(p.read_text(encoding="utf-8")) or {}
+    except Exception:
         return out
-
-    def _norm_id(v):
-        if v is None:
-            return None
-        s = str(v).strip()
-        if not s:
-            return None
-        if s.isdigit():
-            try:
-                return str(int(s))
-            except Exception:
-                return s
-        return s
-
-    if isinstance(parsed, dict):
-        for k, v in parsed.items():
-            nid = _norm_id(k)
-            if nid is None:
+    if not isinstance(raw, dict):
+        return out
+    dom = raw.get("domus_thermostats")
+    if not isinstance(dom, dict):
+        return out
+    for k, v in dom.items():
+        try:
+            sid = str(int(str(k).strip()))
+        except Exception:
+            continue
+        if isinstance(v, dict):
+            enabled = str(v.get("enabled", "true")).strip().lower() in ("1", "true", "t", "yes", "y", "on")
+            if not enabled:
                 continue
-            out[nid] = str(v).strip() if v not in (None, "") else f"Thermostat {nid}"
-        return out
-
-    if isinstance(parsed, list):
-        for item in parsed:
-            if isinstance(item, dict):
-                nid = _norm_id(item.get("id"))
-                if nid is None:
-                    continue
-                name = str(item.get("name") or "").strip() or f"Thermostat {nid}"
-                out[nid] = name
-            else:
-                nid = _norm_id(item)
-                if nid is None:
-                    continue
-                out[nid] = f"Thermostat {nid}"
+            name = str(v.get("name") or "").strip() or f"Thermostat {sid}"
+        else:
+            name = str(v or "").strip() or f"Thermostat {sid}"
+        out[sid] = name
     return out
 
 
@@ -164,12 +146,6 @@ def main():
         "WS_RECONNECT_COOLDOWN_SEC",
         8,
     )
-    domus_thermostat_overrides_raw = _get_config_value(
-        options,
-        "domus_thermostat_overrides",
-        "DOMUS_THERMOSTAT_OVERRIDES",
-        "[]",
-    )
 
     if not ksenia_host or not ksenia_port or not ksenia_pin:
         print("[FATAL] Config Ksenia incompleta: serve ksenia_host, ksenia_port, ksenia_pin.")
@@ -182,18 +158,9 @@ def main():
         logger.info("MQTT log verboso attivato (mqtt_debug_verbose=true).")
     if output_debug_verbose:
         logger.info("Debug output verboso attivato (output_debug_verbose=true).")
-    domus_thermostat_overrides = _parse_domus_thermostat_overrides(
-        domus_thermostat_overrides_raw,
-        logger=logger,
-    )
+    domus_thermostat_overrides = _load_domus_thermostat_overrides_from_ui_tags()
     if domus_thermostat_overrides:
-        logger.info(
-            "Domus thermostat overrides: %s",
-            sorted(
-                domus_thermostat_overrides.keys(),
-                key=lambda x: int(x) if str(x).isdigit() else str(x),
-            ),
-        )
+        logger.info("Domus thermostat overrides da UI: %s", sorted(domus_thermostat_overrides.keys(), key=int))
 
     state = LaresState()
     start_debug_server(state, port=debug_ui_port)
@@ -2380,6 +2347,7 @@ def main():
                 return {
                     "outputs": {},
                     "scenarios": {},
+                    "domus_thermostats": {},
                     "tag_styles": {
                         "Cancelli": {"icon_off": "mdiGate", "icon_on": "mdiGate", "color_off": "#a9b1c3", "color_on": "#1ed760"},
                         "barre": {"icon_off": "mdiBoomGate", "icon_on": "mdiBoomGate", "color_off": "#a9b1c3", "color_on": "#ffb020"},
@@ -2430,7 +2398,7 @@ def main():
                 raw = {}
             if not isinstance(raw, dict):
                 raw = {}
-            for key in ("outputs", "scenarios", "tag_styles"):
+            for key in ("outputs", "scenarios", "domus_thermostats", "tag_styles"):
                 if not isinstance(raw.get(key), dict):
                     raw[key] = {}
             # Seed defaults if tag_styles is still empty (user can overwrite from UI).
@@ -2489,6 +2457,28 @@ def main():
                 )
             except Exception as exc:
                 logger.error(f"Impossibile salvare ui_tags: {exc}")
+
+        def _domus_thermostat_overrides_from_data(data):
+            out = {}
+            if not isinstance(data, dict):
+                return out
+            raw = data.get("domus_thermostats")
+            if not isinstance(raw, dict):
+                return out
+            for k, v in raw.items():
+                try:
+                    sid = str(int(str(k).strip()))
+                except Exception:
+                    continue
+                if isinstance(v, dict):
+                    enabled = _coerce_bool(v.get("enabled", True), True)
+                    if not enabled:
+                        continue
+                    name = str(v.get("name") or "").strip() or f"Thermostat {sid}"
+                else:
+                    name = str(v or "").strip() or f"Thermostat {sid}"
+                out[sid] = name
+            return out
 
         async def _open_command_ws(pin: str) -> tuple[object, int, bool]:
             """
@@ -2795,6 +2785,57 @@ def main():
                         return {"ok": False, "error": "invalid_token"}
                     return {"ok": True, "expires_at": exp}
                 return {"ok": False, "error": "unsupported session action"}
+
+            if entity_type == "domus_thermostat":
+                if action not in ("set", "update", "delete"):
+                    return {"ok": False, "error": "unsupported domus_thermostat action"}
+                entity_id = payload.get("id")
+                try:
+                    entity_id_int = int(entity_id)
+                except Exception:
+                    return {"ok": False, "error": "invalid id"}
+                enabled = True
+                name = ""
+                if isinstance(value, dict):
+                    enabled = _coerce_bool(value.get("enabled", True), True)
+                    name = str(value.get("name") or "").strip()
+                elif action == "delete":
+                    enabled = False
+                with ui_tags_lock:
+                    data = _load_ui_tags_file()
+                    m = data.get("domus_thermostats")
+                    if not isinstance(m, dict):
+                        m = {}
+                        data["domus_thermostats"] = m
+                    key = str(entity_id_int)
+                    if (not enabled) or action == "delete":
+                        m.pop(key, None)
+                    else:
+                        m[key] = {"enabled": True, "name": name}
+                    _save_ui_tags_file(data)
+                    overrides = _domus_thermostat_overrides_from_data(data)
+                try:
+                    manager.set_extra_thermostat_names(overrides)
+                except Exception as exc:
+                    logger.error("set_extra_thermostat_names failed: %s", exc)
+                try:
+                    async def _refresh():
+                        therms = await manager.getThermostats()
+                        if isinstance(therms, list):
+                            try:
+                                state.apply_static_update("thermostats", therms)
+                            except Exception:
+                                pass
+                            for item in therms:
+                                if isinstance(item, dict):
+                                    publish("thermostats", item)
+                        publish_discovery(state.snapshot())
+
+                    fut = asyncio.run_coroutine_threadsafe(_refresh(), loop)
+                    fut.result(timeout=20)
+                except Exception as exc:
+                    logger.error("domus_thermostat refresh error: %s", exc)
+                return {"ok": True, "id": entity_id_int, "enabled": bool(enabled and action != "delete"), "name": name}
 
             if entity_type == "ui_tags":
                 if action not in ("set", "update"):

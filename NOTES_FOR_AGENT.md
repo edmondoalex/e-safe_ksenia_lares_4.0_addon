@@ -307,3 +307,13 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/websocketmanager.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Domus termostato attivabile da UI admin
+- Implementata gestione da UI admin: su ogni riga `domus` ora c'e' toggle `Thermostat` + campo nome + `Salva` (comando `domus_thermostat`).
+- Persistenza in `/data/ui_tags.json` (`domus_thermostats`) con applicazione runtime immediata (`set_extra_thermostat_names`) e refresh discovery/termostati.
+- Rimossa configurazione manuale `domus_thermostat_overrides` da `config.yaml`; versione incrementata a `5.2.27` per passaggio completo a gestione UI.
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/app/debug_server.py
+- ksenia_lares_addon/app/websocketmanager.py
+- ksenia_lares_addon/config.yaml

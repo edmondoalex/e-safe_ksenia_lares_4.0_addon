@@ -669,7 +669,7 @@ def _load_ui_tags(path=_UI_TAGS_PATH):
         data = {}
     if not isinstance(data, dict):
         data = {}
-    for key in ("outputs", "scenarios", "tag_styles"):
+    for key in ("outputs", "scenarios", "domus_thermostats", "tag_styles"):
         if not isinstance(data.get(key), dict):
             data[key] = {}
     # Seed default tag styles if none are configured yet (safe: user can edit/remove).
@@ -1577,6 +1577,18 @@ def render_index(snapshot):
         visible_flag = True
         if str(entity_type).lower() in ("outputs", "scenarios"):
             tag_value, visible_flag = _get_ui_tag(ui_tags, entity_type, entity_id)
+        domus_therm_enabled = False
+        domus_therm_name = ""
+        if str(entity_type).lower() == "domus":
+            dmap = ui_tags.get("domus_thermostats") if isinstance(ui_tags, dict) else {}
+            if isinstance(dmap, dict):
+                drow = dmap.get(str(entity_id))
+                if isinstance(drow, dict):
+                    domus_therm_enabled = _coerce_bool(drow.get("enabled", True), True)
+                    domus_therm_name = str(drow.get("name") or "").strip()
+                elif drow not in (None, ""):
+                    domus_therm_enabled = True
+                    domus_therm_name = str(drow).strip()
         sta = realtime.get("STA") if isinstance(realtime, dict) else ""
         pos = realtime.get("POS") if isinstance(realtime, dict) else ""
         arm = realtime.get("ARM") if isinstance(realtime, dict) else ""
@@ -2050,6 +2062,16 @@ def render_index(snapshot):
                     f"<span class=\"ctl\">T3 <input class=\"mono\" data-key=\"{k}\" data-kind=\"t3\" style=\"width:56px\" type=\"number\" step=\"0.5\" value=\"{_html_escape(t3s)}\" "
                     f"onchange=\"setThermProfile({_html_escape(entity_id)},'T3',this.value)\"/></span>"
                 )
+        if str(entity_type).lower() == "domus":
+            controls = (
+                "<span class=\"ctl\">Thermostat "
+                f"<input class=\"domusThermEnable\" type=\"checkbox\" data-domus-id=\"{_html_escape(entity_id)}\""
+                f"{' checked' if domus_therm_enabled else ''}/></span> "
+                "<span class=\"ctl\">Nome "
+                f"<input class=\"mono domusThermName\" style=\"width:160px\" data-domus-id=\"{_html_escape(entity_id)}\" "
+                f"value=\"{_html_escape(domus_therm_name)}\" placeholder=\"Nome termostato\"/></span> "
+                f"<button class=\"cmd\" onclick=\"saveDomusTherm({_html_escape(entity_id)})\">Salva</button>"
+            )
 
         if entity_type in ("outputs", "scenarios", "zones", "partitions"):
             fav_btn = (
@@ -2622,6 +2644,15 @@ def render_index(snapshot):
         const visible = visibleInput ? !!visibleInput.checked : true;
         updateRowTagSearch(type, id, tag);
         sendCmd('ui_tags', id, 'set', {{ target_type: type, tag: tag, visible: visible }});
+      }}
+
+      function saveDomusTherm(id) {{
+        const sid = String(id || '');
+        const chk = document.querySelector(`input.domusThermEnable[data-domus-id="${{sid}}"]`);
+        const inp = document.querySelector(`input.domusThermName[data-domus-id="${{sid}}"]`);
+        const enabled = chk ? !!chk.checked : false;
+        const name = inp ? String(inp.value || '').trim() : '';
+        sendCmd('domus_thermostat', id, 'set', {{ enabled: enabled, name: name }});
       }}
 
       function bindTagInputs() {{
