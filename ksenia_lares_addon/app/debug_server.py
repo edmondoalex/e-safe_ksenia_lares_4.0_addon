@@ -569,9 +569,14 @@ class LaresState:
     def _ingest_realtime_payload(self, payload, now):
         changed = []
         known_therm_ids = self._known_thermostat_ids_locked()
+        domus_rt_by_id = {}
         for item in (payload.get("STATUS_OUTPUTS") or []):
             changed.append(self._upsert("outputs", item.get("ID"), {"realtime": item}, now))
         for item in (payload.get("STATUS_BUS_HA_SENSORS") or []):
+            if isinstance(item, dict):
+                iid = self._norm_entity_id(item.get("ID"))
+                if iid is not None:
+                    domus_rt_by_id[iid] = dict(item)
             changed.append(self._upsert("domus", item.get("ID"), {"realtime": item}, now))
         for item in (payload.get("STATUS_POWER_LINES") or []):
             changed.append(self._upsert("powerlines", item.get("ID"), {"realtime": item}, now))
@@ -587,17 +592,39 @@ class LaresState:
             if gsm:
                 changed.append(self._upsert("gsm", gsm.get("ID"), {"realtime": gsm}, now))
         for item in (payload.get("STATUS_TEMPERATURES") or []):
+            if isinstance(item, dict):
+                iid = self._norm_entity_id(item.get("ID"))
+                if iid is not None and known_therm_ids and iid not in known_therm_ids:
+                    tval = item.get("TEM")
+                    if tval in (None, ""):
+                        tval = item.get("TEMP")
+                    cur = domus_rt_by_id.get(iid, {"ID": iid})
+                    if tval not in (None, ""):
+                        cur["TEM"] = tval
+                    domus_rt_by_id[iid] = cur
+                    continue
             if known_therm_ids:
                 iid = self._norm_entity_id(item.get("ID") if isinstance(item, dict) else None)
                 if iid not in known_therm_ids:
                     continue
             changed.append(self._upsert("thermostats", item.get("ID"), {"realtime": item}, now))
         for item in (payload.get("STATUS_HUMIDITY") or []):
+            if isinstance(item, dict):
+                iid = self._norm_entity_id(item.get("ID"))
+                if iid is not None and known_therm_ids and iid not in known_therm_ids:
+                    hval = item.get("HUM")
+                    cur = domus_rt_by_id.get(iid, {"ID": iid})
+                    if hval not in (None, ""):
+                        cur["HUM"] = hval
+                    domus_rt_by_id[iid] = cur
+                    continue
             if known_therm_ids:
                 iid = self._norm_entity_id(item.get("ID") if isinstance(item, dict) else None)
                 if iid not in known_therm_ids:
                     continue
             changed.append(self._upsert("thermostats", item.get("ID"), {"realtime": item}, now))
+        for iid, rt in domus_rt_by_id.items():
+            changed.append(self._upsert("domus", iid, {"realtime": rt}, now))
         return [c for c in changed if c]
 
 

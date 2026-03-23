@@ -1316,7 +1316,7 @@ def main():
                 "name": f"{name} Temperatura",
                 "unique_id": obj_temp,
                 "state_topic": state_topic,
-                "value_template": "{{ value_json.get('DOMUS', {}).get('TEM', value_json.get('TEM', '')) }}",
+                "value_template": "{{ value_json.get('DOMUS', {}).get('TEM', value_json.get('DOMUS', {}).get('TEMP', value_json.get('TEM', value_json.get('TEMP', '')))) }}",
                 "unit_of_measurement": "C",
                 "device_class": "temperature",
                 "default_entity_id": f"sensor.{obj_temp}",

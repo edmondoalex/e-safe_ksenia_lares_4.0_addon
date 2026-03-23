@@ -240,3 +240,13 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/main.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Domus temperatura mancante
+- Fix instradamento realtime: i record `STATUS_TEMPERATURES/STATUS_HUMIDITY` non appartenenti ai termostati configurati vengono ora applicati ai `domus` (merge per ID), invece di essere scartati.
+- Aggiornato template sensore Domus Temperatura con fallback multipli (`DOMUS.TEM`, `DOMUS.TEMP`, `TEM`, `TEMP`).
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.19` (bugfix temperatura Domus mancante).
+
+File toccati:
+- ksenia_lares_addon/app/websocketmanager.py
+- ksenia_lares_addon/app/debug_server.py
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/config.yaml

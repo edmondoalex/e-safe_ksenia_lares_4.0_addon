@@ -1002,36 +1002,94 @@ class WebSocketManager:
             if "STATUS_TEMPERATURES" in data:
                 temps = data["STATUS_TEMPERATURES"]
                 self._logger.debug("Updating state for temperatures: %s", temps)
+                domus_temp_updates = []
                 if isinstance(temps, list):
                     known = self._known_thermostat_ids()
                     if known:
-                        temps = [
-                            x for x in temps
-                            if isinstance(x, dict) and self._norm_id(x.get("ID")) in known
-                        ]
+                        filtered = []
+                        for x in temps:
+                            if not isinstance(x, dict):
+                                continue
+                            xid = self._norm_id(x.get("ID"))
+                            if xid in known:
+                                filtered.append(x)
+                                continue
+                            tval = x.get("TEM")
+                            if tval in (None, ""):
+                                tval = x.get("TEMP")
+                            if tval not in (None, "") and xid is not None:
+                                domus_temp_updates.append({"ID": xid, "TEM": tval})
+                        temps = filtered
                 if self._realtimeInitialData is None:
                     self._realtimeInitialData = {}
                 if "PAYLOAD" not in self._realtimeInitialData:
                     self._realtimeInitialData["PAYLOAD"] = {}
                 self._realtimeInitialData["PAYLOAD"]["STATUS_TEMPERATURES"] = temps
                 await self._notify_listeners("thermostats", temps)
+                if domus_temp_updates:
+                    bus = self._realtimeInitialData["PAYLOAD"].get("STATUS_BUS_HA_SENSORS")
+                    if not isinstance(bus, list):
+                        bus = []
+                    by_id = {}
+                    for it in bus:
+                        if isinstance(it, dict):
+                            iid = self._norm_id(it.get("ID"))
+                            if iid is not None:
+                                by_id[iid] = dict(it)
+                    for up in domus_temp_updates:
+                        iid = self._norm_id(up.get("ID"))
+                        if iid is None:
+                            continue
+                        cur = by_id.get(iid, {"ID": iid})
+                        cur.update(up)
+                        by_id[iid] = cur
+                    self._realtimeInitialData["PAYLOAD"]["STATUS_BUS_HA_SENSORS"] = list(by_id.values())
+                    await self._notify_listeners("domus", domus_temp_updates)
 
             if "STATUS_HUMIDITY" in data:
                 hum = data["STATUS_HUMIDITY"]
                 self._logger.debug("Updating state for humidity: %s", hum)
+                domus_hum_updates = []
                 if isinstance(hum, list):
                     known = self._known_thermostat_ids()
                     if known:
-                        hum = [
-                            x for x in hum
-                            if isinstance(x, dict) and self._norm_id(x.get("ID")) in known
-                        ]
+                        filtered = []
+                        for x in hum:
+                            if not isinstance(x, dict):
+                                continue
+                            xid = self._norm_id(x.get("ID"))
+                            if xid in known:
+                                filtered.append(x)
+                                continue
+                            hval = x.get("HUM")
+                            if hval not in (None, "") and xid is not None:
+                                domus_hum_updates.append({"ID": xid, "HUM": hval})
+                        hum = filtered
                 if self._realtimeInitialData is None:
                     self._realtimeInitialData = {}
                 if "PAYLOAD" not in self._realtimeInitialData:
                     self._realtimeInitialData["PAYLOAD"] = {}
                 self._realtimeInitialData["PAYLOAD"]["STATUS_HUMIDITY"] = hum
                 await self._notify_listeners("thermostats", hum)
+                if domus_hum_updates:
+                    bus = self._realtimeInitialData["PAYLOAD"].get("STATUS_BUS_HA_SENSORS")
+                    if not isinstance(bus, list):
+                        bus = []
+                    by_id = {}
+                    for it in bus:
+                        if isinstance(it, dict):
+                            iid = self._norm_id(it.get("ID"))
+                            if iid is not None:
+                                by_id[iid] = dict(it)
+                    for up in domus_hum_updates:
+                        iid = self._norm_id(up.get("ID"))
+                        if iid is None:
+                            continue
+                        cur = by_id.get(iid, {"ID": iid})
+                        cur.update(up)
+                        by_id[iid] = cur
+                    self._realtimeInitialData["PAYLOAD"]["STATUS_BUS_HA_SENSORS"] = list(by_id.values())
+                    await self._notify_listeners("domus", domus_hum_updates)
 
     """
     Registers a listener for a specific entity type.
