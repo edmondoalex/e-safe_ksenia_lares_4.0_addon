@@ -266,3 +266,11 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/main.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Termostati solo da CFG_THERMOSTATS
+- Rimossa la fallback che creava termostati da ID presenti in `STATUS_TEMPERATURES/STATUS_HUMIDITY` quando mancava `CFG_THERMOSTATS`.
+- Instradamento realtime reso strict: il canale `thermostats` accetta solo ID presenti in `CFG_THERMOSTATS`; gli altri record temperatura/umidita vengono trattati come Domus.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.22` (fix termostati non appartenenti alla centrale).
+
+File toccati:
+- ksenia_lares_addon/app/websocketmanager.py
+- ksenia_lares_addon/config.yaml

@@ -1005,21 +1005,22 @@ class WebSocketManager:
                 domus_temp_updates = []
                 if isinstance(temps, list):
                     known = self._known_thermostat_ids()
-                    if known:
-                        filtered = []
-                        for x in temps:
-                            if not isinstance(x, dict):
-                                continue
-                            xid = self._norm_id(x.get("ID"))
-                            if xid in known:
-                                filtered.append(x)
-                                continue
-                            tval = x.get("TEM")
-                            if tval in (None, ""):
-                                tval = x.get("TEMP")
-                            if tval not in (None, "") and xid is not None:
-                                domus_temp_updates.append({"ID": xid, "TEM": tval})
-                        temps = filtered
+                    filtered = []
+                    for x in temps:
+                        if not isinstance(x, dict):
+                            continue
+                        xid = self._norm_id(x.get("ID"))
+                        if known and xid in known:
+                            filtered.append(x)
+                            continue
+                        # DOMUS temperatures are usually exposed as TEM (sometimes TEMP).
+                        # Keep thermostat channel strict to CFG_THERMOSTATS IDs only.
+                        tval = x.get("TEM")
+                        if tval in (None, ""):
+                            tval = x.get("TEMP")
+                        if tval not in (None, "") and xid is not None:
+                            domus_temp_updates.append({"ID": xid, "TEM": tval})
+                    temps = filtered
                 if self._realtimeInitialData is None:
                     self._realtimeInitialData = {}
                 if "PAYLOAD" not in self._realtimeInitialData:
@@ -1052,19 +1053,18 @@ class WebSocketManager:
                 domus_hum_updates = []
                 if isinstance(hum, list):
                     known = self._known_thermostat_ids()
-                    if known:
-                        filtered = []
-                        for x in hum:
-                            if not isinstance(x, dict):
-                                continue
-                            xid = self._norm_id(x.get("ID"))
-                            if xid in known:
-                                filtered.append(x)
-                                continue
-                            hval = x.get("HUM")
-                            if hval not in (None, "") and xid is not None:
-                                domus_hum_updates.append({"ID": xid, "HUM": hval})
-                        hum = filtered
+                    filtered = []
+                    for x in hum:
+                        if not isinstance(x, dict):
+                            continue
+                        xid = self._norm_id(x.get("ID"))
+                        if known and xid in known:
+                            filtered.append(x)
+                            continue
+                        hval = x.get("HUM")
+                        if hval not in (None, "") and xid is not None:
+                            domus_hum_updates.append({"ID": xid, "HUM": hval})
+                    hum = filtered
                 if self._realtimeInitialData is None:
                     self._realtimeInitialData = {}
                 if "PAYLOAD" not in self._realtimeInitialData:
@@ -2030,9 +2030,9 @@ class WebSocketManager:
                 if nid is not None:
                     ids.add(nid)
         if not ids:
-            # Fallback only when CFG_THERMOSTATS is missing.
-            ids.update(temp_by_id.keys())
-            ids.update(hum_by_id.keys())
+            # Strict mode: thermostats come only from CFG_THERMOSTATS.
+            # Avoid creating fake thermostat entities from generic temperature/humidity IDs.
+            return []
 
         out = []
         for tid in sorted(ids, key=lambda s: int(s) if str(s).isdigit() else str(s)):
