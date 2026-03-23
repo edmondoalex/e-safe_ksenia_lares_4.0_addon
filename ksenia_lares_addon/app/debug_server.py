@@ -79,6 +79,17 @@ _UI_FAVORITES_LOCK = threading.Lock()
 _ZONES_LAST_SEEN_PATH = "/data/last_seen_zones.json"
 _ZONES_LAST_SEEN_FLUSH_SEC = 5.0
 
+def _read_ui_tags_raw():
+    try:
+        path = _resolve_ui_tags_read_path(_UI_TAGS_PATH)
+        raw = ""
+        if path and os.path.exists(path):
+            raw = Path(path).read_text(encoding="utf-8", errors="ignore")
+        data = _load_ui_tags()
+        return {"path": str(path), "raw": raw, "data": data}
+    except Exception:
+        return {"path": "", "raw": "", "data": _load_ui_tags()}
+
 def _parse_mdi_icon(value: str) -> str:
     """
     Accepts "mdi:<name>" and returns "<name>" (lowercase) if valid.
@@ -13891,6 +13902,9 @@ class _Handler(BaseHTTPRequestHandler):
             snap = self.state.snapshot()
             self._send(200, "text/html; charset=utf-8", render_timers(snap))
             return
+        if path in ("/ui_tags_raw", "/ui_tags_raw/"):
+            self._send(200, "text/html; charset=utf-8", render_ui_tags_raw())
+            return
         if path == "/api/entities":
             snap = self.state.snapshot()
             snap["ui_rev"] = UI_REV
@@ -15028,6 +15042,34 @@ def render_thermostat_detail(snapshot, thermostat_id: str):
         .replace("__ADDON_VERSION__", _html_escape(ADDON_VERSION))
         .replace("__INIT__", init)
     )
+    return html.encode("utf-8")
+
+
+def render_ui_tags_raw():
+    payload = _read_ui_tags_raw()
+    path = _html_escape(payload.get("path") or "")
+    raw = payload.get("raw") or ""
+    data = payload.get("data") or {}
+    pretty = json.dumps(data, ensure_ascii=False, indent=2)
+    body = _html_escape(raw) if raw else _html_escape(pretty)
+    html = f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>ui_tags.json</title>
+  <style>
+    body {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 16px; background:#0b0d12; color:#e7eaf0; }}
+    .path {{ color: #9aa3b2; margin-bottom: 12px; }}
+    pre {{ white-space: pre-wrap; word-break: break-word; background: #141822; padding: 12px; border-radius: 8px; border:1px solid rgba(255,255,255,0.08); }}
+    a {{ color: #7db1ff; text-decoration: none; }}
+  </style>
+</head>
+<body>
+  <div class="path">Path: {path or '-'} · <a href="/menu">Torna al menu</a></div>
+  <pre>{body}</pre>
+</body>
+</html>"""
     return html.encode("utf-8")
 
 
