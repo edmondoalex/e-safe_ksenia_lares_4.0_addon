@@ -186,3 +186,9 @@ File toccati:
 
 File toccati:
 - repository.json
+- Fix repository Git per HA Add-on Store: `repository.json` riscritto in UTF-8 senza BOM (prima aveva BOM e risultava "not a valid add-on repository").
+- Aggiornato campo `maintainer` con formato nome+email.
+- Nessun bump versione in `ksenia_lares_addon/config.yaml` (solo metadati repository).
+
+File toccati:
+- repository.json
