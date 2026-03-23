@@ -2332,7 +2332,10 @@ class WebSocketManager:
                 hum_by_id[str(norm.get("ID"))] = norm
 
         out = []
-        for tid in sorted(selected_ids, key=lambda s: int(s) if str(s).isdigit() else str(s)):
+        for tid in sorted(
+            selected_ids,
+            key=lambda s: (0, int(s)) if str(s).isdigit() else (1, str(s)),
+        ):
             cfg = next((x for x in cfg_list if isinstance(x, dict) and str(x.get("ID")) == tid), {}) or {}
             rt = temp_by_id.get(tid) or {}
             hum = hum_by_id.get(tid) or {}

@@ -8,6 +8,7 @@ import time
 import ssl
 import re
 import concurrent.futures
+import threading
 from pathlib import Path
 import urllib.request
 import urllib.error
@@ -2743,6 +2744,233 @@ def main():
     except Exception:
         pass
 
+    ui_tags_lock = threading.Lock()
+    _ui_tags_candidates = []
+    _ui_tags_env = str(os.getenv("KS_UI_TAGS_PATH", "") or "").strip()
+    if _ui_tags_env:
+        _ui_tags_candidates.append(Path(_ui_tags_env))
+    ui_tags_persistent_path = Path("/data/ui_tags.json")
+    _ui_tags_candidates.extend(
+        [
+            ui_tags_persistent_path,
+            Path("/config/ui_tags.json"),
+            Path("./ui_tags.json"),
+        ]
+    )
+    _seen_ui_tags = set()
+    ui_tags_candidates = []
+    for _cand in _ui_tags_candidates:
+        _sc = str(_cand)
+        if (not _sc) or (_sc in _seen_ui_tags):
+            continue
+        _seen_ui_tags.add(_sc)
+        ui_tags_candidates.append(_cand)
+    ui_tags_path = ui_tags_candidates[0] if ui_tags_candidates else Path("/data/ui_tags.json")
+
+    def _coerce_bool(value, default=True):
+        if isinstance(value, bool):
+            return value
+        s = str(value).strip().lower()
+        if s in ("1", "true", "t", "yes", "y", "on"):
+            return True
+        if s in ("0", "false", "f", "no", "n", "off", ""):
+            return False
+        return bool(default)
+
+    def _resolve_ui_tags_read_path():
+        for cand in ui_tags_candidates:
+            try:
+                if cand.exists():
+                    return cand
+            except Exception:
+                continue
+        return ui_tags_path
+
+    def _load_ui_tags_file():
+        read_path = _resolve_ui_tags_read_path()
+        if not read_path.exists():
+            return {
+                "outputs": {},
+                "scenarios": {},
+                "domus_thermostats": {},
+                "tag_styles": {
+                    "Cancelli": {"icon_off": "mdiGate", "icon_on": "mdiGate", "color_off": "#a9b1c3", "color_on": "#1ed760"},
+                    "barre": {"icon_off": "mdiBoomGate", "icon_on": "mdiBoomGate", "color_off": "#a9b1c3", "color_on": "#ffb020"},
+                    "Portoni": {
+                        "icon_off": "mdiGarageVariant",
+                        "icon_on": "mdiGarageOpenVariant",
+                        "color_off": "#a9b1c3",
+                        "color_on": "#1ed760",
+                    },
+                    "Grid": {"icon_off": "mdiGridLarge", "icon_on": "mdiGridLarge", "color_off": "#a9b1c3", "color_on": "#39a0ff"},
+                    "tende": {
+                        "icon_off": "mdiCurtainsClosed",
+                        "icon_on": "mdiCurtains",
+                        "color_off": "#a9b1c3",
+                        "color_on": "#1ed760",
+                    },
+                    "Luci": {"icon_off": "mdiLightbulb", "icon_on": "mdiLightbulb", "color_off": "#a9b1c3", "color_on": "#ffd24a"},
+                    "blind": {
+                        "icon_off": "mdiBlindsHorizontalClosed",
+                        "icon_on": "mdiBlindsHorizontal",
+                        "color_off": "#a9b1c3",
+                        "color_on": "#1ed760",
+                    },
+                    "roller": {
+                        "icon_off": "mdiRollerShadeClosed",
+                        "icon_on": "mdiRollerShade",
+                        "color_off": "#a9b1c3",
+                        "color_on": "#1ed760",
+                    },
+                    "tapparelle": {
+                        "icon_off": "mdiWindowShutter",
+                        "icon_on": "mdiWindowShutterOpen",
+                        "color_off": "#a9b1c3",
+                        "color_on": "#1ed760",
+                    },
+                    "Serrande": {
+                        "icon_off": "mdiWindowShutter",
+                        "icon_on": "mdiWindowShutterOpen",
+                        "color_off": "#a9b1c3",
+                        "color_on": "#1ed760",
+                    },
+                    "CancelliPed": {"icon_off": "mdiGateOpen", "icon_on": "mdiGateOpen", "color_off": "#a9b1c3", "color_on": "#1ed760"},
+                    "Serrature": {"icon_off": "mdiLock", "icon_on": "mdiLockOpenVariant", "color_off": "#a9b1c3", "color_on": "#1ed760"},
+                    "Prese": {"icon_off": "mdiPowerSocketEu", "icon_on": "mdiPowerSocketEu", "color_off": "#a9b1c3", "color_on": "#1ed760"},
+                    "Serbatoi": {"icon_off": "mdiWaterPercent", "icon_on": "mdiWaterPercent", "color_off": "#a9b1c3", "color_on": "#1ed760"},
+                    "Pompe": {"icon_off": "mdiPump", "icon_on": "mdiPump", "color_off": "#1ed760", "color_on": "#ff4d4d"},
+                },
+            }
+        try:
+            return json.loads(read_path.read_text(encoding="utf-8")) or {}
+        except Exception as exc:
+            logger.error(f"Impossibile leggere ui_tags: {exc}")
+            return {}
+
+    def _save_ui_tags_file(data):
+        targets = []
+        # Always persist to /data first: survives reboot and add-on updates.
+        targets.append(ui_tags_persistent_path)
+        for t in ui_tags_candidates or [ui_tags_path]:
+            if str(t) == str(ui_tags_persistent_path):
+                continue
+            targets.append(t)
+        saved = False
+        last_exc = None
+        for idx, target in enumerate(targets):
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(
+                    json.dumps(data, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                if idx == 0:
+                    saved = True
+            except Exception as exc:
+                last_exc = exc
+        if (not saved) and last_exc is not None:
+            logger.error(f"Impossibile salvare ui_tags: {last_exc}")
+
+    def _domus_thermostat_overrides_from_data(data):
+        out = {}
+        if not isinstance(data, dict):
+            return out
+        raw = data.get("domus_thermostats")
+        if not isinstance(raw, dict):
+            return out
+        for k, v in raw.items():
+            try:
+                sid = str(int(str(k).strip()))
+            except Exception:
+                continue
+            if isinstance(v, dict):
+                enabled = _coerce_bool(v.get("enabled", True), True)
+                if not enabled:
+                    continue
+                name = str(v.get("name") or "").strip() or f"Thermostat {sid}"
+            else:
+                name = str(v or "").strip() or f"Thermostat {sid}"
+            out[sid] = name
+        return out
+
+    def _resolve_domus_thermostat_overrides(overrides, read_data):
+        out = {}
+        if not isinstance(overrides, dict) or not overrides:
+            return out
+        rd = read_data if isinstance(read_data, dict) else {}
+
+        def _nid(v):
+            try:
+                return str(int(str(v).strip()))
+            except Exception:
+                return None
+
+        sensor_to_th = {}
+        for key in ("TEMPERATURES", "HUMIDITY"):
+            for item in (rd.get(key) or []):
+                if not isinstance(item, dict):
+                    continue
+                sid = _nid(item.get("ID"))
+                thid = _nid(item.get("ID_TH"))
+                if sid and thid:
+                    sensor_to_th[sid] = thid
+
+        cfg_ids = set()
+        for item in (rd.get("CFG_THERMOSTATS") or []):
+            if isinstance(item, dict):
+                tid = _nid(item.get("ID"))
+                if tid:
+                    cfg_ids.add(tid)
+
+        unresolved = []
+        for sid, name in overrides.items():
+            sid_n = _nid(sid)
+            if not sid_n:
+                continue
+            tid = sensor_to_th.get(sid_n)
+            if not tid and sid_n in cfg_ids:
+                tid = sid_n
+            if not tid:
+                # Keep DOMUS ID as fallback so selected items still appear in UI/MQTT
+                # even when panel mapping (ID_TH/CFG_THERMOSTATS) is not exposed.
+                out[sid_n] = str(name or "").strip() or f"Thermostat {sid_n}"
+                unresolved.append(sid_n)
+                continue
+            out[tid] = str(name or "").strip() or f"Thermostat {tid}"
+        if unresolved:
+            logger.info(
+                "DOMUS thermostat IDs senza mapping reale (fallback su ID DOMUS): %s",
+                sorted(unresolved, key=int),
+            )
+        return out
+
+    def _merge_selected_thermostat_placeholders(therms, selected_names):
+        out = []
+        seen = set()
+        if isinstance(therms, list):
+            for item in therms:
+                if not isinstance(item, dict):
+                    continue
+                tid = item.get("ID")
+                if tid is None:
+                    continue
+                try:
+                    tid_n = str(int(str(tid).strip()))
+                except Exception:
+                    tid_n = str(tid)
+                seen.add(tid_n)
+                out.append(item)
+        if isinstance(selected_names, dict):
+            for tid, name in selected_names.items():
+                try:
+                    tid_n = str(int(str(tid).strip()))
+                except Exception:
+                    tid_n = str(tid)
+                if tid_n in seen:
+                    continue
+                out.append({"ID": tid_n, "DES": str(name or "").strip() or f"Thermostat {tid_n}"})
+        return out
+
     async def _after_reconnect(read_data, realtime_initial, system_version):
         logger.info("WebSocket riallineata: ricarico dati (static+realtime)")
         try:
@@ -3083,281 +3311,6 @@ def main():
                     if isinstance(resp, dict) and resp.get("RESULT") and resp.get("RESULT") != "OK":
                         return False
                     return True
-
-        import threading
-
-        ui_tags_lock = threading.Lock()
-        _ui_tags_candidates = []
-        _ui_tags_env = str(os.getenv("KS_UI_TAGS_PATH", "") or "").strip()
-        if _ui_tags_env:
-            _ui_tags_candidates.append(Path(_ui_tags_env))
-        ui_tags_persistent_path = Path("/data/ui_tags.json")
-        _ui_tags_candidates.extend(
-            [
-                ui_tags_persistent_path,
-                Path("/config/ui_tags.json"),
-                Path("./ui_tags.json"),
-            ]
-        )
-        _seen_ui_tags = set()
-        ui_tags_candidates = []
-        for _cand in _ui_tags_candidates:
-            _sc = str(_cand)
-            if (not _sc) or (_sc in _seen_ui_tags):
-                continue
-            _seen_ui_tags.add(_sc)
-            ui_tags_candidates.append(_cand)
-        ui_tags_path = ui_tags_candidates[0] if ui_tags_candidates else Path("/data/ui_tags.json")
-
-        def _coerce_bool(value, default=True):
-            if isinstance(value, bool):
-                return value
-            s = str(value).strip().lower()
-            if s in ("1", "true", "t", "yes", "y", "on"):
-                return True
-            if s in ("0", "false", "f", "no", "n", "off", ""):
-                return False
-            return bool(default)
-
-        def _resolve_ui_tags_read_path():
-            for cand in ui_tags_candidates:
-                try:
-                    if cand.exists():
-                        return cand
-                except Exception:
-                    continue
-            return ui_tags_path
-
-        def _load_ui_tags_file():
-            read_path = _resolve_ui_tags_read_path()
-            if not read_path.exists():
-                return {
-                    "outputs": {},
-                    "scenarios": {},
-                    "domus_thermostats": {},
-                    "tag_styles": {
-                        "Cancelli": {"icon_off": "mdiGate", "icon_on": "mdiGate", "color_off": "#a9b1c3", "color_on": "#1ed760"},
-                        "barre": {"icon_off": "mdiBoomGate", "icon_on": "mdiBoomGate", "color_off": "#a9b1c3", "color_on": "#ffb020"},
-                        "Portoni": {
-                            "icon_off": "mdiGarageVariant",
-                            "icon_on": "mdiGarageOpenVariant",
-                            "color_off": "#a9b1c3",
-                            "color_on": "#1ed760",
-                        },
-                        "Grid": {"icon_off": "mdiGridLarge", "icon_on": "mdiGridLarge", "color_off": "#a9b1c3", "color_on": "#39a0ff"},
-                        "tende": {
-                            "icon_off": "mdiCurtainsClosed",
-                            "icon_on": "mdiCurtains",
-                            "color_off": "#a9b1c3",
-                            "color_on": "#1ed760",
-                        },
-                        "Luci": {"icon_off": "mdiLightbulb", "icon_on": "mdiLightbulb", "color_off": "#a9b1c3", "color_on": "#ffd24a"},
-                        "blind": {
-                            "icon_off": "mdiBlindsHorizontalClosed",
-                            "icon_on": "mdiBlindsHorizontal",
-                            "color_off": "#a9b1c3",
-                            "color_on": "#1ed760",
-                        },
-                        "roller": {
-                            "icon_off": "mdiRollerShadeClosed",
-                            "icon_on": "mdiRollerShade",
-                            "color_off": "#a9b1c3",
-                            "color_on": "#1ed760",
-                        },
-                        "tapparelle": {
-                            "icon_off": "mdiWindowShutter",
-                            "icon_on": "mdiWindowShutterOpen",
-                            "color_off": "#a9b1c3",
-                            "color_on": "#1ed760",
-                        },
-                        "shutter": {
-                            "icon_off": "mdiWindowShutter",
-                            "icon_on": "mdiWindowShutterOpen",
-                            "color_off": "#a9b1c3",
-                            "color_on": "#1ed760",
-                        },
-                        "Pompe": {"icon_off": "mdiPump", "icon_on": "mdiPump", "color_off": "#1ed760", "color_on": "#ff4d4d"},
-                    },
-                }
-            try:
-                raw = json.loads(read_path.read_text(encoding="utf-8")) or {}
-            except Exception:
-                raw = {}
-            if not isinstance(raw, dict):
-                raw = {}
-            for key in ("outputs", "scenarios", "domus_thermostats", "tag_styles"):
-                if not isinstance(raw.get(key), dict):
-                    raw[key] = {}
-            # Seed defaults if tag_styles is still empty (user can overwrite from UI).
-            if not raw.get("tag_styles"):
-                raw["tag_styles"] = {
-                    "Cancelli": {"icon_off": "mdiGate", "icon_on": "mdiGate", "color_off": "#a9b1c3", "color_on": "#1ed760"},
-                    "barre": {"icon_off": "mdiBoomGate", "icon_on": "mdiBoomGate", "color_off": "#a9b1c3", "color_on": "#ffb020"},
-                    "Portoni": {
-                        "icon_off": "mdiGarageVariant",
-                        "icon_on": "mdiGarageOpenVariant",
-                        "color_off": "#a9b1c3",
-                        "color_on": "#1ed760",
-                    },
-                    "Grid": {"icon_off": "mdiGridLarge", "icon_on": "mdiGridLarge", "color_off": "#a9b1c3", "color_on": "#39a0ff"},
-                    "tende": {
-                        "icon_off": "mdiCurtainsClosed",
-                        "icon_on": "mdiCurtains",
-                        "color_off": "#a9b1c3",
-                        "color_on": "#1ed760",
-                    },
-                    "Luci": {"icon_off": "mdiLightbulb", "icon_on": "mdiLightbulb", "color_off": "#a9b1c3", "color_on": "#ffd24a"},
-                    "blind": {
-                        "icon_off": "mdiBlindsHorizontalClosed",
-                        "icon_on": "mdiBlindsHorizontal",
-                        "color_off": "#a9b1c3",
-                        "color_on": "#1ed760",
-                    },
-                    "roller": {
-                        "icon_off": "mdiRollerShadeClosed",
-                        "icon_on": "mdiRollerShade",
-                        "color_off": "#a9b1c3",
-                        "color_on": "#1ed760",
-                    },
-                    "tapparelle": {
-                        "icon_off": "mdiWindowShutter",
-                        "icon_on": "mdiWindowShutterOpen",
-                        "color_off": "#a9b1c3",
-                        "color_on": "#1ed760",
-                    },
-                    "shutter": {
-                        "icon_off": "mdiWindowShutter",
-                        "icon_on": "mdiWindowShutterOpen",
-                        "color_off": "#a9b1c3",
-                        "color_on": "#1ed760",
-                    },
-                    "Pompe": {"icon_off": "mdiPump", "icon_on": "mdiPump", "color_off": "#1ed760", "color_on": "#ff4d4d"},
-                }
-            return raw
-
-        def _save_ui_tags_file(data):
-            targets = []
-            # Always persist to /data first: survives reboot and add-on updates.
-            targets.append(ui_tags_persistent_path)
-            for t in ui_tags_candidates or [ui_tags_path]:
-                if str(t) == str(ui_tags_persistent_path):
-                    continue
-                targets.append(t)
-            saved = False
-            last_exc = None
-            for idx, target in enumerate(targets):
-                try:
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_text(
-                        json.dumps(data, ensure_ascii=False, indent=2),
-                        encoding="utf-8",
-                    )
-                    if idx == 0:
-                        saved = True
-                except Exception as exc:
-                    last_exc = exc
-            if (not saved) and last_exc is not None:
-                logger.error(f"Impossibile salvare ui_tags: {last_exc}")
-
-        def _domus_thermostat_overrides_from_data(data):
-            out = {}
-            if not isinstance(data, dict):
-                return out
-            raw = data.get("domus_thermostats")
-            if not isinstance(raw, dict):
-                return out
-            for k, v in raw.items():
-                try:
-                    sid = str(int(str(k).strip()))
-                except Exception:
-                    continue
-                if isinstance(v, dict):
-                    enabled = _coerce_bool(v.get("enabled", True), True)
-                    if not enabled:
-                        continue
-                    name = str(v.get("name") or "").strip() or f"Thermostat {sid}"
-                else:
-                    name = str(v or "").strip() or f"Thermostat {sid}"
-                out[sid] = name
-            return out
-
-        def _resolve_domus_thermostat_overrides(overrides, read_data):
-            out = {}
-            if not isinstance(overrides, dict) or not overrides:
-                return out
-            rd = read_data if isinstance(read_data, dict) else {}
-
-            def _nid(v):
-                try:
-                    return str(int(str(v).strip()))
-                except Exception:
-                    return None
-
-            sensor_to_th = {}
-            for key in ("TEMPERATURES", "HUMIDITY"):
-                for item in (rd.get(key) or []):
-                    if not isinstance(item, dict):
-                        continue
-                    sid = _nid(item.get("ID"))
-                    thid = _nid(item.get("ID_TH"))
-                    if sid and thid:
-                        sensor_to_th[sid] = thid
-
-            cfg_ids = set()
-            for item in (rd.get("CFG_THERMOSTATS") or []):
-                if isinstance(item, dict):
-                    tid = _nid(item.get("ID"))
-                    if tid:
-                        cfg_ids.add(tid)
-
-            unresolved = []
-            for sid, name in overrides.items():
-                sid_n = _nid(sid)
-                if not sid_n:
-                    continue
-                tid = sensor_to_th.get(sid_n)
-                if not tid and sid_n in cfg_ids:
-                    tid = sid_n
-                if not tid:
-                    # Keep DOMUS ID as fallback so selected items still appear in UI/MQTT
-                    # even when panel mapping (ID_TH/CFG_THERMOSTATS) is not exposed.
-                    out[sid_n] = str(name or "").strip() or f"Thermostat {sid_n}"
-                    unresolved.append(sid_n)
-                    continue
-                out[tid] = str(name or "").strip() or f"Thermostat {tid}"
-            if unresolved:
-                logger.info(
-                    "DOMUS thermostat IDs senza mapping reale (fallback su ID DOMUS): %s",
-                    sorted(unresolved, key=int),
-                )
-            return out
-
-        def _merge_selected_thermostat_placeholders(therms, selected_names):
-            out = []
-            seen = set()
-            if isinstance(therms, list):
-                for item in therms:
-                    if not isinstance(item, dict):
-                        continue
-                    tid = item.get("ID")
-                    if tid is None:
-                        continue
-                    try:
-                        tid_n = str(int(str(tid).strip()))
-                    except Exception:
-                        tid_n = str(tid)
-                    seen.add(tid_n)
-                    out.append(item)
-            if isinstance(selected_names, dict):
-                for tid, name in selected_names.items():
-                    try:
-                        tid_n = str(int(str(tid).strip()))
-                    except Exception:
-                        tid_n = str(tid)
-                    if tid_n in seen:
-                        continue
-                    out.append({"ID": tid_n, "DES": str(name or "").strip() or f"Thermostat {tid_n}"})
-            return out
 
         try:
             _ui_tags_boot = _load_ui_tags_file()

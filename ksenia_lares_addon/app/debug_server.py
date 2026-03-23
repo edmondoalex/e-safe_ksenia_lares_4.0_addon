@@ -198,6 +198,22 @@ class LaresState:
         except Exception:
             return {}
 
+    def _norm_entity_id(self, value):
+        try:
+            if value is None:
+                return None
+            if isinstance(value, int):
+                return str(value)
+            s = str(value).strip()
+            if s.isdigit():
+                return str(int(s))
+            return s
+        except Exception:
+            try:
+                return str(value)
+            except Exception:
+                return None
+
     def _maybe_flush_zones_last_seen(self, now: float):
         try:
             if not self._zones_last_seen_dirty:

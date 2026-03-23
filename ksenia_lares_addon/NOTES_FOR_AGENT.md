@@ -1,7 +1,10 @@
 - Cosa e cambiato:
-  - Fix sort in `prune_entity_ids` per gestire ID termostati misti (stringhe/numeri) evitando errore `'<'
-    not supported between instances of 'str' and 'int'`.
+  - Fix normalizzazione ID e sorting termostati con ID misti (stringhe/numeri) per evitare errori runtime.
+  - Resi disponibili i helper `ui_tags`/domus anche su reconnect per la sync termostati.
 - File toccati:
   - `app/debug_server.py`
+  - `app/websocketmanager.py`
+  - `app/main.py`
+  - `config.yaml`
 - Versione (`config.yaml`):
-  - incrementata a 5.2.71 per includere il fix sui termostati.
+  - incrementata a 5.2.72 per includere i fix sui termostati/domus.
