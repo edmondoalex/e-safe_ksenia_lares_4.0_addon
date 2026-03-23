@@ -1,6 +1,6 @@
 name: e-Safe Ksenia Lares 4.0
 slug: ksenia_lares_addon
-version: "5.2.24"
+version: "5.2.25"
 description: Add-on Home Assistant per centrale Ksenia Lares con MQTT Discovery
 startup: services
 boot: auto
@@ -46,6 +46,10 @@ options:
   web_pin_session_minutes_default: 5
   security_cmd_ws_idle_timeout_sec: 20
   ws_reconnect_cooldown_sec: 8
+  # JSON overrides per Domus che hanno termostato comandabile:
+  # es: [{"id":1,"name":"Suite 2"}, {"id":5,"name":"Zona Giorno"}]
+  # oppure: {"1":"Suite 2","5":"Zona Giorno"}
+  domus_thermostat_overrides: "[]"
   debug_ui_port: 8080
   security_ui_port: 8081
   icon_http_enabled: false
@@ -69,6 +73,7 @@ schema:
   web_pin_session_minutes_default: int?
   security_cmd_ws_idle_timeout_sec: int?
   ws_reconnect_cooldown_sec: int?
+  domus_thermostat_overrides: str?
   debug_ui_port: int?
   security_ui_port: int?
   icon_http_enabled: bool?

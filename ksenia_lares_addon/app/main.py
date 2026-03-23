@@ -65,6 +65,54 @@ def _create_mqtt_client():
         return mqtt.Client()
 
 
+def _parse_domus_thermostat_overrides(raw_value, logger=None):
+    out = {}
+    if raw_value in (None, "", "[]", "{}"):
+        return out
+    try:
+        parsed = raw_value if isinstance(raw_value, (dict, list)) else json.loads(str(raw_value))
+    except Exception as exc:
+        if logger:
+            logger.error("Invalid domus_thermostat_overrides JSON: %s", exc)
+        return out
+
+    def _norm_id(v):
+        if v is None:
+            return None
+        s = str(v).strip()
+        if not s:
+            return None
+        if s.isdigit():
+            try:
+                return str(int(s))
+            except Exception:
+                return s
+        return s
+
+    if isinstance(parsed, dict):
+        for k, v in parsed.items():
+            nid = _norm_id(k)
+            if nid is None:
+                continue
+            out[nid] = str(v).strip() if v not in (None, "") else f"Thermostat {nid}"
+        return out
+
+    if isinstance(parsed, list):
+        for item in parsed:
+            if isinstance(item, dict):
+                nid = _norm_id(item.get("id"))
+                if nid is None:
+                    continue
+                name = str(item.get("name") or "").strip() or f"Thermostat {nid}"
+                out[nid] = name
+            else:
+                nid = _norm_id(item)
+                if nid is None:
+                    continue
+                out[nid] = f"Thermostat {nid}"
+    return out
+
+
 def main():
     print("[INFO] Avvio add-on Ksenia Lares")
 
@@ -116,6 +164,12 @@ def main():
         "WS_RECONNECT_COOLDOWN_SEC",
         8,
     )
+    domus_thermostat_overrides_raw = _get_config_value(
+        options,
+        "domus_thermostat_overrides",
+        "DOMUS_THERMOSTAT_OVERRIDES",
+        "[]",
+    )
 
     if not ksenia_host or not ksenia_port or not ksenia_pin:
         print("[FATAL] Config Ksenia incompleta: serve ksenia_host, ksenia_port, ksenia_pin.")
@@ -128,6 +182,18 @@ def main():
         logger.info("MQTT log verboso attivato (mqtt_debug_verbose=true).")
     if output_debug_verbose:
         logger.info("Debug output verboso attivato (output_debug_verbose=true).")
+    domus_thermostat_overrides = _parse_domus_thermostat_overrides(
+        domus_thermostat_overrides_raw,
+        logger=logger,
+    )
+    if domus_thermostat_overrides:
+        logger.info(
+            "Domus thermostat overrides: %s",
+            sorted(
+                domus_thermostat_overrides.keys(),
+                key=lambda x: int(x) if str(x).isdigit() else str(x),
+            ),
+        )
 
     state = LaresState()
     start_debug_server(state, port=debug_ui_port)
@@ -2016,6 +2082,7 @@ def main():
         debug_thermostats=debug_thermostats,
         output_debug_verbose=output_debug_verbose,
         reconnect_cooldown_sec=ws_reconnect_cooldown_sec,
+        extra_thermostat_names=domus_thermostat_overrides,
     )
     try:
         manager_ref["manager"] = manager

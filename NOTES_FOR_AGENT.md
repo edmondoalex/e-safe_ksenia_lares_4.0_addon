@@ -290,3 +290,12 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/debug_server.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Override Domus con termostato + nome personalizzato
+- Aggiunta opzione configurabile `domus_thermostat_overrides` (JSON) per indicare quali ID Domus vanno trattati come termostati comandabili.
+- Supportati ID + nome personalizzato (es. `[{"id":1,"name":"Suite 2"}]` o `{"1":"Suite 2"}`); i nomi diventano default e restano modificabili dalla UI termostati.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.25` (controllo esplicito termostati Domus e naming).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/app/websocketmanager.py
+- ksenia_lares_addon/config.yaml

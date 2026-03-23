@@ -49,6 +49,7 @@ class WebSocketManager:
         debug_thermostats: bool = False,
         output_debug_verbose: bool = False,
         reconnect_cooldown_sec: int | float = 8,
+        extra_thermostat_names: dict | None = None,
     ):
         self._ip = ip
         self._port = port
@@ -104,6 +105,14 @@ class WebSocketManager:
         self._connSecure = 0  # 0: no SSL, 1: SSL
         self._last_thermo_cfg_by_id = {}
         self._cooldown_until = 0.0
+        self._extra_thermostat_names = {}
+        if isinstance(extra_thermostat_names, dict):
+            for k, v in extra_thermostat_names.items():
+                nid = self._norm_id(k)
+                if nid is None:
+                    continue
+                name = str(v).strip() if v not in (None, "") else f"Thermostat {nid}"
+                self._extra_thermostat_names[nid] = name
 
     async def _notify_listeners(self, entity_type: str, payload):
         callbacks = self.listeners.get(entity_type, [])
@@ -151,7 +160,7 @@ class WebSocketManager:
     def _known_thermostat_ids(self) -> set[str]:
         cfg_list = (self._readData or {}).get("CFG_THERMOSTATS") or []
         if not isinstance(cfg_list, list):
-            return set()
+            cfg_list = []
         out = set()
         for item in cfg_list:
             if not isinstance(item, dict):
@@ -159,6 +168,7 @@ class WebSocketManager:
             nid = self._norm_id(item.get("ID"))
             if nid is not None:
                 out.add(nid)
+        out.update(self._extra_thermostat_names.keys())
         return out
 
     def set_on_reconnect(self, callback):
@@ -2029,6 +2039,7 @@ class WebSocketManager:
                 nid = self._norm_id(x.get("ID"))
                 if nid is not None:
                     ids.add(nid)
+        ids.update(self._extra_thermostat_names.keys())
         if not ids:
             # Strict mode: thermostats come only from CFG_THERMOSTATS.
             # Avoid creating fake thermostat entities from generic temperature/humidity IDs.
@@ -2046,6 +2057,8 @@ class WebSocketManager:
                 merged.update(rt)
             if isinstance(hum, dict):
                 merged.update(hum)
+            if "DES" not in merged and tid in self._extra_thermostat_names:
+                merged["DES"] = self._extra_thermostat_names.get(tid)
             if "DES" not in merged and tid in name_by_id:
                 merged["DES"] = name_by_id.get(tid)
             out.append(merged)
