@@ -390,3 +390,11 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/debug_server.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - UI termostati: blocco creazione entita non selezionate
+- In `LaresState` il canale realtime `thermostats` ora accetta aggiornamenti solo per ID termostati gia' noti/statici (quelli filtrati e selezionati), ignorando gli altri.
+- Rimossa anche l'ingest iniziale di `STATUS_TEMPERATURES/STATUS_HUMIDITY` verso `thermostats` in `set_initial_data`, che ricreava termostati extra senza statico.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.64` (fix: in UI comparivano ancora tutti i termostati con static vuoto).
+
+File toccati:
+- ksenia_lares_addon/app/debug_server.py
+- ksenia_lares_addon/config.yaml

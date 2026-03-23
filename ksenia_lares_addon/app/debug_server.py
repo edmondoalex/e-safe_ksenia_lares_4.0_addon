@@ -415,7 +415,13 @@ class LaresState:
                     if gsm:
                         changed.append(self._upsert("gsm", gsm.get("ID"), {"realtime": gsm}, now))
             elif entity_type == "thermostats" and isinstance(updates, list):
+                known = self._known_thermostat_ids_locked()
+                if not known:
+                    updates = []
                 for item in updates:
+                    iid = self._norm_entity_id(item.get("ID") if isinstance(item, dict) else None)
+                    if iid not in known:
+                        continue
                     changed.append(
                         self._upsert("thermostats", item.get("ID"), {"realtime": item}, now)
                     )
@@ -481,6 +487,20 @@ class LaresState:
         changed = [c for c in changed if c]
         if changed:
             self._publish_event({"type": "update", "meta": {"last_update": now}, "entities": changed})
+
+    def _known_thermostat_ids_locked(self):
+        out = set()
+        for key, ent in (self._entities or {}).items():
+            if not str(key or "").startswith("thermostats:"):
+                continue
+            if not isinstance(ent, dict):
+                continue
+            st = ent.get("static")
+            if isinstance(st, dict) and st.get("ID") is not None:
+                nid = self._norm_entity_id(st.get("ID"))
+                if nid is not None:
+                    out.add(nid)
+        return out
 
     def prune_entity_ids(self, entity_type: str, keep_ids) -> list[str]:
         keep = set()
@@ -667,10 +687,8 @@ class LaresState:
             gsm = _gsm_from_connection_item(item)
             if gsm:
                 changed.append(self._upsert("gsm", gsm.get("ID"), {"realtime": gsm}, now))
-        for item in (payload.get("STATUS_TEMPERATURES") or []):
-            changed.append(self._upsert("thermostats", item.get("ID"), {"realtime": item}, now))
-        for item in (payload.get("STATUS_HUMIDITY") or []):
-            changed.append(self._upsert("thermostats", item.get("ID"), {"realtime": item}, now))
+        # Thermostat realtime ingest is handled via filtered updates from main.py.
+        # Avoid creating thermostat entities from the full initial realtime payload here.
         return [c for c in changed if c]
 
 
