@@ -114,6 +114,17 @@ class WebSocketManager:
                 name = str(v).strip() if v not in (None, "") else f"Thermostat {nid}"
                 self._extra_thermostat_names[nid] = name
 
+    def set_extra_thermostat_names(self, names: dict | None):
+        out = {}
+        if isinstance(names, dict):
+            for k, v in names.items():
+                nid = self._norm_id(k)
+                if nid is None:
+                    continue
+                name = str(v).strip() if v not in (None, "") else f"Thermostat {nid}"
+                out[nid] = name
+        self._extra_thermostat_names = out
+
     async def _notify_listeners(self, entity_type: str, payload):
         callbacks = self.listeners.get(entity_type, [])
         if not callbacks:

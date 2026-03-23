@@ -299,3 +299,11 @@ File toccati:
 - ksenia_lares_addon/app/main.py
 - ksenia_lares_addon/app/websocketmanager.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Preparazione update runtime override termostati
+- Aggiunto metodo `set_extra_thermostat_names(...)` nel manager WS per aggiornare a runtime la mappa ID->nome termostati extra (base per gestione futura da UI admin).
+- Nessun cambio funzionale visibile lato utente in questa singola patch (solo API interna).
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.26` (allineamento policy versione per modifica codice).
+
+File toccati:
+- ksenia_lares_addon/app/websocketmanager.py
+- ksenia_lares_addon/config.yaml
