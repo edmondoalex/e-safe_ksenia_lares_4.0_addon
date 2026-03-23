@@ -414,3 +414,11 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/websocketmanager.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Placeholder termostati selezionati (visibilita' garantita)
+- Aggiunta fusione placeholder per i termostati selezionati (`domus_thermostats`): se `getThermostats()` non restituisce una voce per un ID selezionato, viene comunque creata entita statica minima (`ID`,`DES`).
+- Applicato il merge in startup, reconnect, refresh da UI Domus e listener `thermostats_cfg`.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.67` (fix: Domus selezionati ma nessun termostato visibile).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/config.yaml

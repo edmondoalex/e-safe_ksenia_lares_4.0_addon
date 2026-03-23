@@ -2761,6 +2761,12 @@ def main():
             logger.error(f"Debug initial ingest error (reconnect): {exc}")
         try:
             therms = await manager.getThermostats()
+            try:
+                _ov = _domus_thermostat_overrides_from_data(_load_ui_tags_file())
+                _sel = _resolve_domus_thermostat_overrides(_ov, read_data)
+                therms = _merge_selected_thermostat_placeholders(therms, _sel)
+            except Exception:
+                pass
             keep_ids = []
             if isinstance(therms, list):
                 for item in therms:
@@ -2913,7 +2919,14 @@ def main():
     manager.register_listener("thermostats", lambda updates: on_status_updates("thermostats", updates))
     async def _on_thermostats_cfg(updates):
         try:
+            try:
+                _ov = _domus_thermostat_overrides_from_data(_load_ui_tags_file())
+                _sel = _resolve_domus_thermostat_overrides(_ov, getattr(manager, "_readData", None))
+                manager.set_extra_thermostat_names(_sel)
+            except Exception:
+                _sel = {}
             therms = await manager.getThermostats()
+            therms = _merge_selected_thermostat_placeholders(therms, _sel)
             keep_ids = []
             if isinstance(therms, list):
                 for item in therms:
@@ -3273,6 +3286,33 @@ def main():
                     "DOMUS thermostat IDs senza mapping reale (fallback su ID DOMUS): %s",
                     sorted(unresolved, key=int),
                 )
+            return out
+
+        def _merge_selected_thermostat_placeholders(therms, selected_names):
+            out = []
+            seen = set()
+            if isinstance(therms, list):
+                for item in therms:
+                    if not isinstance(item, dict):
+                        continue
+                    tid = item.get("ID")
+                    if tid is None:
+                        continue
+                    try:
+                        tid_n = str(int(str(tid).strip()))
+                    except Exception:
+                        tid_n = str(tid)
+                    seen.add(tid_n)
+                    out.append(item)
+            if isinstance(selected_names, dict):
+                for tid, name in selected_names.items():
+                    try:
+                        tid_n = str(int(str(tid).strip()))
+                    except Exception:
+                        tid_n = str(tid)
+                    if tid_n in seen:
+                        continue
+                    out.append({"ID": tid_n, "DES": str(name or "").strip() or f"Thermostat {tid_n}"})
             return out
 
         try:
@@ -3800,6 +3840,7 @@ def main():
                 try:
                     async def _refresh():
                         therms = await manager.getThermostats()
+                        therms = _merge_selected_thermostat_placeholders(therms, resolved_overrides)
                         keep_ids = []
                         if isinstance(therms, list):
                             for item in therms:
@@ -4463,6 +4504,12 @@ def main():
             logger.error(f"Debug initial ingest error: {exc}")
         try:
             therms = await manager.getThermostats()
+            try:
+                _ov = _domus_thermostat_overrides_from_data(_load_ui_tags_file())
+                _sel = _resolve_domus_thermostat_overrides(_ov, getattr(manager, "_readData", None))
+                therms = _merge_selected_thermostat_placeholders(therms, _sel)
+            except Exception:
+                pass
             keep_ids = []
             if isinstance(therms, list):
                 for item in therms:
