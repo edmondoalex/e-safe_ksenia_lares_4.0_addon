@@ -3262,11 +3262,17 @@ def main():
                 if not tid and sid_n in cfg_ids:
                     tid = sid_n
                 if not tid:
+                    # Keep DOMUS ID as fallback so selected items still appear in UI/MQTT
+                    # even when panel mapping (ID_TH/CFG_THERMOSTATS) is not exposed.
+                    out[sid_n] = str(name or "").strip() or f"Thermostat {sid_n}"
                     unresolved.append(sid_n)
                     continue
                 out[tid] = str(name or "").strip() or f"Thermostat {tid}"
             if unresolved:
-                logger.info("DOMUS thermostat IDs senza mapping reale (ignorati): %s", sorted(unresolved, key=int))
+                logger.info(
+                    "DOMUS thermostat IDs senza mapping reale (fallback su ID DOMUS): %s",
+                    sorted(unresolved, key=int),
+                )
             return out
 
         try:

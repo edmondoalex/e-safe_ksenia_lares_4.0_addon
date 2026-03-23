@@ -398,3 +398,11 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/debug_server.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Fallback ID Domus per termostati selezionati senza mapping
+- In risoluzione `domus_thermostats` non scarto piu' i Domus senza `ID_TH`/`CFG_THERMOSTATS`: ora uso fallback su ID Domus, cosi' i selezionati compaiono comunque in UI/MQTT.
+- Mantengo comunque il mapping verso ID termostato reale quando disponibile (prioritario).
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.65` (fix: Domus selezionati ma nessun termostato visibile).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/config.yaml
