@@ -1,17 +1,22 @@
-import os
+﻿import os
 import re
 from pathlib import Path
 import json
+import logging
 import threading
 import time
 import queue
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
+import urllib.request
+import urllib.error
 
 UI_REV = "2026-01-12.07"
 # Keep a code-side version so the UI shows the right value even when
 # Supervisor doesn't inject / update ADDON_VERSION (common when config.yaml isn't bundled in the container image).
 CODE_VERSION = ""
+
+_UI_LOGGER = logging.getLogger("ksenia_lares_addon.ui")
 def _read_addon_version_from_config() -> str:
     # Prefer config.yaml when running from a dev checkout, so the UI version matches the repo.
     try:
@@ -48,6 +53,7 @@ def _detect_addon_version() -> str:
 ADDON_VERSION = _detect_addon_version()
 UI_VERSION = ADDON_VERSION
 _ASSETS_DIR = os.path.join(os.path.dirname(__file__), "www")
+_MDI_DIR = os.path.join(_ASSETS_DIR, "mdi")
 _ASSET_MAP = {
     "alarm": "e-safe alarm.png",
     "arm": "e-safe arm.png",
@@ -63,6 +69,89 @@ _UI_FAVORITES_PATH = "/data/ui_favorites.json"
 _UI_FAVORITES_LOCK = threading.Lock()
 _ZONES_LAST_SEEN_PATH = "/data/last_seen_zones.json"
 _ZONES_LAST_SEEN_FLUSH_SEC = 5.0
+
+def _parse_mdi_icon(value: str) -> str:
+    """
+    Accepts "mdi:<name>" and returns "<name>" (lowercase) if valid.
+
+    Note: in this add-on we do NOT download icons at runtime. Icons must exist locally
+    under app/www/mdi/<name>.svg (copied into the container).
+    """
+    v = str(value or "").strip().lower()
+    m = re.match(r"^mdi:([a-z0-9_-]+)$", v)
+    return m.group(1) if m else ""
+
+
+# Material Design Icons (MDI) cache (download on-demand, stored in /data for offline use)
+_MDI_CACHE_DIR = "/data/icons/mdi"
+_MDI_SOURCE_URL = "https://raw.githubusercontent.com/Templarian/MaterialDesign/master/svg/{name}.svg"
+_MDI_LOCK = threading.Lock()
+
+
+def _mdi_cache_path(name: str) -> str:
+    safe = re.sub(r"[^a-z0-9_-]+", "", str(name or "").strip().lower())
+    return os.path.join(_MDI_CACHE_DIR, f"{safe}.svg")
+
+
+def _ensure_mdi_cached(name: str, timeout_sec: float = 6.0) -> bool:
+    safe = re.sub(r"[^a-z0-9_-]+", "", str(name or "").strip().lower())
+    if not safe:
+        return False
+
+    path = _mdi_cache_path(safe)
+    try:
+        if os.path.exists(path) and os.path.getsize(path) > 0:
+            return True
+    except Exception:
+        pass
+
+    with _MDI_LOCK:
+        try:
+            if os.path.exists(path) and os.path.getsize(path) > 0:
+                return True
+        except Exception:
+            pass
+
+        url = _MDI_SOURCE_URL.format(name=safe)
+        req = urllib.request.Request(url, headers={"User-Agent": "ksenia_lares_addon/mdi-cache"})
+        try:
+            with urllib.request.urlopen(req, timeout=float(timeout_sec or 6.0)) as resp:
+                body = resp.read()
+        except urllib.error.HTTPError as exc:
+            if int(getattr(exc, "code", 0) or 0) == 404:
+                return False
+            try:
+                _UI_LOGGER.warning("MDI download HTTP error for %s: %s", safe, exc)
+            except Exception:
+                pass
+            return False
+        except Exception as exc:
+            try:
+                _UI_LOGGER.warning("MDI download failed for %s: %s", safe, exc)
+            except Exception:
+                pass
+            return False
+
+        # Basic sanity check: must be an SVG file and not unreasonably large.
+        if not isinstance(body, (bytes, bytearray)) or len(body) <= 0 or len(body) > 250_000:
+            return False
+        if b"<svg" not in body[:300].lower():
+            return False
+
+        tmp = path + ".tmp"
+        try:
+            os.makedirs(_MDI_CACHE_DIR, exist_ok=True)
+            with open(tmp, "wb") as f:
+                f.write(body)
+            os.replace(tmp, path)
+            return True
+        except Exception:
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except Exception:
+                pass
+            return False
 
 
 class LaresState:
@@ -326,14 +415,7 @@ class LaresState:
                     if gsm:
                         changed.append(self._upsert("gsm", gsm.get("ID"), {"realtime": gsm}, now))
             elif entity_type == "thermostats" and isinstance(updates, list):
-                known = self._known_thermostat_ids_locked()
-                if not known:
-                    # Strict mode: ignore thermostat realtime if no static CFG_THERMOSTATS IDs are known.
-                    updates = []
                 for item in updates:
-                    iid = self._norm_entity_id(item.get("ID") if isinstance(item, dict) else None)
-                    if iid not in known:
-                        continue
                     changed.append(
                         self._upsert("thermostats", item.get("ID"), {"realtime": item}, now)
                     )
@@ -350,35 +432,6 @@ class LaresState:
         changed = [c for c in changed if c]
         if changed:
             self._publish_event({"type": "update", "meta": {"last_update": now}, "entities": changed})
-
-    def _norm_entity_id(self, value):
-        if value is None:
-            return None
-        try:
-            if isinstance(value, int):
-                return str(value)
-            s = str(value).strip()
-            if not s:
-                return None
-            if s.isdigit():
-                return str(int(s))
-            return s
-        except Exception:
-            return str(value)
-
-    def _known_thermostat_ids_locked(self):
-        out = set()
-        for key, ent in (self._entities or {}).items():
-            if not str(key or "").startswith("thermostats:"):
-                continue
-            if not isinstance(ent, dict):
-                continue
-            st = ent.get("static")
-            if isinstance(st, dict) and st.get("ID") is not None:
-                nid = self._norm_entity_id(st.get("ID"))
-                if nid is not None:
-                    out.add(nid)
-        return out
 
     def apply_static_update(self, entity_type, updates):
         now = time.time()
@@ -428,33 +481,6 @@ class LaresState:
         changed = [c for c in changed if c]
         if changed:
             self._publish_event({"type": "update", "meta": {"last_update": now}, "entities": changed})
-
-    def prune_entity_ids(self, entity_type: str, keep_ids) -> list[str]:
-        keep = set()
-        for raw in (keep_ids or []):
-            nid = self._norm_entity_id(raw)
-            if nid is not None:
-                keep.add(nid)
-        removed = []
-        with self._lock:
-            keys = list(self._entities.keys())
-            for key in keys:
-                ent = self._entities.get(key)
-                if not isinstance(ent, dict):
-                    continue
-                if str(ent.get("type") or "").lower() != str(entity_type or "").lower():
-                    continue
-                eid = self._norm_entity_id(ent.get("id"))
-                if eid in keep:
-                    continue
-                try:
-                    del self._entities[key]
-                    if eid is not None:
-                        removed.append(eid)
-                except Exception:
-                    pass
-            self._meta["last_update"] = time.time()
-        return sorted(set(removed), key=lambda s: int(s) if str(s).isdigit() else str(s))
 
     def _upsert(self, entity_type, entity_id, patch, now):
         if entity_id is None:
@@ -597,15 +623,9 @@ class LaresState:
 
     def _ingest_realtime_payload(self, payload, now):
         changed = []
-        known_therm_ids = self._known_thermostat_ids_locked()
-        domus_rt_by_id = {}
         for item in (payload.get("STATUS_OUTPUTS") or []):
             changed.append(self._upsert("outputs", item.get("ID"), {"realtime": item}, now))
         for item in (payload.get("STATUS_BUS_HA_SENSORS") or []):
-            if isinstance(item, dict):
-                iid = self._norm_entity_id(item.get("ID"))
-                if iid is not None:
-                    domus_rt_by_id[iid] = dict(item)
             changed.append(self._upsert("domus", item.get("ID"), {"realtime": item}, now))
         for item in (payload.get("STATUS_POWER_LINES") or []):
             changed.append(self._upsert("powerlines", item.get("ID"), {"realtime": item}, now))
@@ -621,41 +641,9 @@ class LaresState:
             if gsm:
                 changed.append(self._upsert("gsm", gsm.get("ID"), {"realtime": gsm}, now))
         for item in (payload.get("STATUS_TEMPERATURES") or []):
-            if isinstance(item, dict):
-                iid = self._norm_entity_id(item.get("ID"))
-                if iid is not None and iid not in known_therm_ids:
-                    tval = item.get("TEM")
-                    if tval in (None, ""):
-                        tval = item.get("TEMP")
-                    cur = domus_rt_by_id.get(iid, {"ID": iid})
-                    if tval not in (None, ""):
-                        cur["TEM"] = tval
-                    domus_rt_by_id[iid] = cur
-                    continue
-            if not known_therm_ids:
-                continue
-            iid = self._norm_entity_id(item.get("ID") if isinstance(item, dict) else None)
-            if iid not in known_therm_ids:
-                continue
             changed.append(self._upsert("thermostats", item.get("ID"), {"realtime": item}, now))
         for item in (payload.get("STATUS_HUMIDITY") or []):
-            if isinstance(item, dict):
-                iid = self._norm_entity_id(item.get("ID"))
-                if iid is not None and iid not in known_therm_ids:
-                    hval = item.get("HUM")
-                    cur = domus_rt_by_id.get(iid, {"ID": iid})
-                    if hval not in (None, ""):
-                        cur["HUM"] = hval
-                    domus_rt_by_id[iid] = cur
-                    continue
-            if not known_therm_ids:
-                continue
-            iid = self._norm_entity_id(item.get("ID") if isinstance(item, dict) else None)
-            if iid not in known_therm_ids:
-                continue
             changed.append(self._upsert("thermostats", item.get("ID"), {"realtime": item}, now))
-        for iid, rt in domus_rt_by_id.items():
-            changed.append(self._upsert("domus", iid, {"realtime": rt}, now))
         return [c for c in changed if c]
 
 
@@ -696,7 +684,7 @@ def _load_ui_tags(path=_UI_TAGS_PATH):
         data = {}
     if not isinstance(data, dict):
         data = {}
-    for key in ("outputs", "scenarios", "domus_thermostats", "tag_styles"):
+    for key in ("outputs", "scenarios", "tag_styles"):
         if not isinstance(data.get(key), dict):
             data[key] = {}
     # Seed default tag styles if none are configured yet (safe: user can edit/remove).
@@ -1604,18 +1592,6 @@ def render_index(snapshot):
         visible_flag = True
         if str(entity_type).lower() in ("outputs", "scenarios"):
             tag_value, visible_flag = _get_ui_tag(ui_tags, entity_type, entity_id)
-        domus_therm_enabled = False
-        domus_therm_name = ""
-        if str(entity_type).lower() == "domus":
-            dmap = ui_tags.get("domus_thermostats") if isinstance(ui_tags, dict) else {}
-            if isinstance(dmap, dict):
-                drow = dmap.get(str(entity_id))
-                if isinstance(drow, dict):
-                    domus_therm_enabled = _coerce_bool(drow.get("enabled", True), True)
-                    domus_therm_name = str(drow.get("name") or "").strip()
-                elif drow not in (None, ""):
-                    domus_therm_enabled = True
-                    domus_therm_name = str(drow).strip()
         sta = realtime.get("STA") if isinstance(realtime, dict) else ""
         pos = realtime.get("POS") if isinstance(realtime, dict) else ""
         arm = realtime.get("ARM") if isinstance(realtime, dict) else ""
@@ -2089,16 +2065,6 @@ def render_index(snapshot):
                     f"<span class=\"ctl\">T3 <input class=\"mono\" data-key=\"{k}\" data-kind=\"t3\" style=\"width:56px\" type=\"number\" step=\"0.5\" value=\"{_html_escape(t3s)}\" "
                     f"onchange=\"setThermProfile({_html_escape(entity_id)},'T3',this.value)\"/></span>"
                 )
-        if str(entity_type).lower() == "domus":
-            controls = (
-                "<span class=\"ctl\">Thermostat "
-                f"<input class=\"domusThermEnable\" type=\"checkbox\" data-domus-id=\"{_html_escape(entity_id)}\""
-                f"{' checked' if domus_therm_enabled else ''}/></span> "
-                "<span class=\"ctl\">Nome "
-                f"<input class=\"mono domusThermName\" style=\"width:160px\" data-domus-id=\"{_html_escape(entity_id)}\" "
-                f"value=\"{_html_escape(domus_therm_name)}\" placeholder=\"Nome termostato\"/></span> "
-                f"<button class=\"cmd\" onclick=\"saveDomusTherm({_html_escape(entity_id)})\">Salva</button>"
-            )
 
         if entity_type in ("outputs", "scenarios", "zones", "partitions"):
             fav_btn = (
@@ -2671,15 +2637,6 @@ def render_index(snapshot):
         const visible = visibleInput ? !!visibleInput.checked : true;
         updateRowTagSearch(type, id, tag);
         sendCmd('ui_tags', id, 'set', {{ target_type: type, tag: tag, visible: visible }});
-      }}
-
-      function saveDomusTherm(id) {{
-        const sid = String(id || '');
-        const chk = document.querySelector(`input.domusThermEnable[data-domus-id="${{sid}}"]`);
-        const inp = document.querySelector(`input.domusThermName[data-domus-id="${{sid}}"]`);
-        const enabled = chk ? !!chk.checked : false;
-        const name = inp ? String(inp.value || '').trim() : '';
-        sendCmd('domus_thermostat', id, 'set', {{ enabled: enabled, name: name }});
       }}
 
       function bindTagInputs() {{
@@ -3504,8 +3461,11 @@ def render_index(snapshot):
       applyTypeFilter();
       refreshTagSelectOptions();
       setInterval(refreshTagSelectOptions, 15000);
-      // Auto-refresh is always ON: prefer SSE push updates, fallback to polling.
-      if (!startSSE()) startPolling();
+      // Keep a polling fallback even when SSE is connected: SSE events are deltas
+      // and can be missed (addon restart, brief network hiccup, browser tab sleep).
+      // Polling can still be disabled via the UI toggle if desired.
+      startPolling();
+      startSSE();
       // Seed one fetch to initialize countdowns even if SSE messages are sparse.
       fetchAndUpdate();
     </script>
@@ -4781,7 +4741,9 @@ def render_security_ui(snapshot):
         if (sse) return true;
         try {{ sse = new EventSource('/api/stream'); }} catch (_e) {{ sse = null; return false; }}
         sse.onopen = () => {{
-          startPolling(0);
+          // Keep a polling fallback even when SSE is connected: SSE events are deltas
+          // and may not include all entities needed by this view.
+          startPolling(2500);
         }};
         sse.onmessage = (ev) => {{
           try {{
@@ -6095,7 +6057,6 @@ def render_security_sensors(snapshot):
         <div class="right">
           <div class="chip" id="ws1Status">Stato: -</div>
           <button class="btn mini" id="ws1Reconnect" style="display:none;">Riconnetti</button>
-          <div class="muted" id="meta">-</div>
         </div>
       </div>
 
@@ -6105,7 +6066,6 @@ def render_security_sensors(snapshot):
 
     <script>
       const el = document.getElementById('content');
-      const meta = document.getElementById('meta');
       const filterChip = document.getElementById('filterChip');
       const toastEl = document.getElementById('toast');
       const ws1Status = document.getElementById('ws1Status');
@@ -6481,9 +6441,6 @@ def render_security_sensors(snapshot):
             }});
           }}
         }} catch (_e) {{}}
-        const nowCentral = (pt && Number.isFinite(pt.gmt) && pt.gmt > 0) ? fmtPanelTs(pt.gmt, offsetMin) : '';
-        meta.textContent = nowCentral ? ('Ora centrale: ' + nowCentral) : '-';
-
         const wsOk = !!(snapshot.meta && snapshot.meta.ws1_connected);
         if (ws1Status) {{
           ws1Status.textContent = wsOk ? 'Stato: OK' : 'Stato: ERRORE';
@@ -6548,6 +6505,7 @@ def render_security_sensors(snapshot):
       if (!startSSE()) {{
         startPolling();
       }}
+
     </script>
   </body>
 </html>"""
@@ -6653,6 +6611,8 @@ def render_security_partitions(snapshot):
       .zlist {{ margin-top: 10px; display:flex; flex-direction: column; gap: 10px; }}
       .zrow {{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding: 12px 12px; border:1px solid rgba(255,255,255,0.08); border-radius: 12px; background: rgba(0,0,0,0.18); }}
       .zname {{ font-size: 16px; }}
+      .partToggle {{ all: unset; cursor: pointer; color: var(--fg); font-size: 18px; font-weight: 700; }}
+      .partToggle:hover {{ text-decoration: underline; }}
       .toast {{ position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: rgba(0,0,0,0.65); border: 1px solid rgba(255,255,255,0.10); color: rgba(255,255,255,0.92); padding: 10px 14px; border-radius: 12px; backdrop-filter: blur(10px); display:none; z-index: 10; }}
 
       @media (max-width: 720px) {{
@@ -6681,6 +6641,7 @@ def render_security_partitions(snapshot):
         <div class="left">
           <div class="chip" id="ws1Status">Stato: -</div>
           <button class="btn mini" id="ws1Reconnect" style="display:none;">Riconnetti</button>
+          <button class="btn mini" id="toggleZones" type="button">Espandi/Comprimi</button>
         </div>
         <div class="chip" id="lastUp">-</div>
       </div>
@@ -6694,18 +6655,11 @@ def render_security_partitions(snapshot):
       const toastEl = document.getElementById('toast');
       const ws1Status = document.getElementById('ws1Status');
       const ws1Reconnect = document.getElementById('ws1Reconnect');
-      let showAll = document.getElementById('showAll');
-      if (!showAll) {{
-        const controls = document.querySelector('.controls');
-        const chip = document.createElement('div');
-        chip.className = 'chip';
-        chip.innerHTML = '<input id="showAll" type="checkbox" checked/> <label for="showAll">Mostra tutte</label>';
-        if (controls && lastUp) controls.insertBefore(chip, lastUp);
-        showAll = document.getElementById('showAll');
-      }}
-      if (showAll) showAll.checked = true;
+      const toggleZonesBtn = document.getElementById('toggleZones');
       if (lastUp) lastUp.textContent = 'Aggiornato: -';
       if (ws1Status) ws1Status.textContent = 'Stato: -';
+
+      const expandedPids = new Set();
 
       async function reconnectWs1() {{
         try {{
@@ -6972,7 +6926,6 @@ def render_security_partitions(snapshot):
 
       function render(snapshot) {{
         const {{ parts, partById, zonesByPid }} = group(snapshot);
-        const all = !!(showAll && showAll.checked);
 
         const sorted = parts.slice().sort((a,b) => (Number(a.id)||0) - (Number(b.id)||0));
         const blocks = [];
@@ -6983,7 +6936,6 @@ def render_security_partitions(snapshot):
           const st = p.static || {{}};
           const ps = partitionState(rt);
           const zlist = (zonesByPid.get(pid) || []).slice().sort((a,b) => a.name.localeCompare(b.name, 'it', {{sensitivity:'base'}}));
-          if (!all && !ps.armed) continue;
 
           const t = (rt.T !== undefined && rt.T !== null) ? String(rt.T) : (rt.TIME !== undefined && rt.TIME !== null) ? String(rt.TIME) : '';
           const extra = (t && t !== '0' && t !== '0:00' && t !== '0.00') ? ('Countdown: ' + t) : '';
@@ -6991,13 +6943,15 @@ def render_security_partitions(snapshot):
             ? `<button class="btn mini" data-pid="${{escapeHtml(pid)}}" data-act="disarm" type="button">Disinserisci</button>`
             : `<button class="btn mini" data-pid="${{escapeHtml(pid)}}" data-act="arm_delay" type="button">Inserisci</button>
                <button class="btn mini" data-pid="${{escapeHtml(pid)}}" data-act="arm_instant" type="button">Istantanea</button>`;
+          const expanded = expandedPids.has(pid);
+          const arrow = expanded ? '▾' : '▸';
 
           blocks.push(`<div class="group">
-            
+             
             <div class="list">
               <div class="row">
                 <div>
-                  <div class="name">${{escapeHtml(name)}}</div>
+                  <div class="name"><button class="partToggle" type="button" data-toggle-pid="${{escapeHtml(pid)}}">${{escapeHtml(arrow + ' ' + name)}}</button></div>
                   <div class="sub">${{extra ? escapeHtml(extra) : ''}}</div>
                 </div>
                 <div class="actions">
@@ -7005,22 +6959,26 @@ def render_security_partitions(snapshot):
                   ${{btns}}
                 </div>
               </div>
-              <div class="row" style="align-items:flex-start;">
-                <div style="flex:1;">
-            <div class="sub">Zone associate (${{zlist.length}})</div>
-                  <div class="zlist">
-                    ${{
-                      zlist.map(z => {{
-                        const zs = (zoneStatus(z.rt).badges || [{{level:'ok', text:'Normale'}}])[0];
-                        return `<div class="zrow">
-                          <div class="zname">${{escapeHtml(z.name)}}</div>
-                          <span class="${{badgeClass(zs.level)}}">${{escapeHtml(zs.text)}}</span>
-                        </div>`;
-                      }}).join('') || `<div class="sub" style="padding:6px 0;">Nessuna zona associata</div>`
-                    }}
-                  </div>
-                </div>
-              </div>
+              ${{
+                expanded
+                  ? `<div class="row" style="align-items:flex-start;">
+                       <div style="flex:1;">
+                         <div class="sub">Zone associate (${{zlist.length}})</div>
+                         <div class="zlist">
+                           ${{
+                             zlist.map(z => {{
+                               const zs = (zoneStatus(z.rt).badges || [{{level:'ok', text:'Normale'}}])[0];
+                               return `<div class="zrow">
+                                 <div class="zname">${{escapeHtml(z.name)}}</div>
+                                 <span class="${{badgeClass(zs.level)}}">${{escapeHtml(zs.text)}}</span>
+                               </div>`;
+                             }}).join('') || `<div class="sub" style="padding:6px 0;">Nessuna zona associata</div>`
+                           }}
+                         </div>
+                       </div>
+                     </div>`
+                  : ''
+              }}
             </div>
           </div>`);
         }}
@@ -7028,7 +6986,7 @@ def render_security_partitions(snapshot):
         outEl.innerHTML = blocks.join('') || '<div class="group"><div class="gtitle">Nessuna partizione</div></div>';
         const lu = snapshot.meta && snapshot.meta.last_update ? new Date(snapshot.meta.last_update * 1000) : null;
         const ts = lu ? lu.toLocaleTimeString('it-IT') : new Date().toLocaleTimeString('it-IT');
-        if (lastUp) lastUp.textContent = `Aggiornato: ${{ts}} | Partizioni: ${{parts.length}} | Mostrate: ${{blocks.length}}`;
+        if (lastUp) lastUp.textContent = `Aggiornato: ${{ts}} | Partizioni: ${{parts.length}}`;
 
         const wsOk = !!(snapshot.meta && snapshot.meta.ws1_connected);
         if (ws1Status) {{
@@ -7075,9 +7033,31 @@ def render_security_partitions(snapshot):
       startSSE();
       setInterval(fetchSnap, 2000);
       document.addEventListener('visibilitychange', () => {{ if (!document.hidden) fetchSnap(); }});
-      if (showAll) showAll.addEventListener('change', () => {{ if (lastSnap) render(lastSnap); else fetchSnap(); }});
+      if (toggleZonesBtn) toggleZonesBtn.addEventListener('click', () => {{
+        if (!lastSnap || !lastSnap.entities) return;
+        const pids = (lastSnap.entities || [])
+          .filter(e => String(e.type||'').toLowerCase() === 'partitions')
+          .map(e => String(e.id));
+        const allExpanded = pids.length > 0 && pids.every(pid => expandedPids.has(pid));
+        expandedPids.clear();
+        if (!allExpanded) {{
+          for (const pid of pids) expandedPids.add(pid);
+        }}
+        render(lastSnap);
+      }});
 
       outEl.addEventListener('click', async (ev) => {{
+        const tog = ev.target && ev.target.closest ? ev.target.closest('button[data-toggle-pid]') : null;
+        if (tog) {{
+          ev.preventDefault();
+          const pid = String(tog.getAttribute('data-toggle-pid') || '');
+          if (pid) {{
+            if (expandedPids.has(pid)) expandedPids.delete(pid);
+            else expandedPids.add(pid);
+            if (lastSnap) render(lastSnap);
+          }}
+          return;
+        }}
         const btn = ev.target && ev.target.closest ? ev.target.closest('button[data-pid][data-act]') : null;
         if (!btn) return;
         ev.preventDefault();
@@ -7753,9 +7733,7 @@ def render_security_scenarios(snapshot):
       </div>
       <div class="controls">
         <div class="leftCtl">
-          <span class="chip">Solo smarthome</span>
           <input id="q" type="text" placeholder="Cerca scenario..." />
-          <label class="chip" style="cursor:pointer;"><input id="onlyVisible" type="checkbox" checked/> solo visibili</label>
         </div>
         <div class="leftCtl">
           <span class="chip" id="countChip">0</span>
@@ -7923,12 +7901,11 @@ def render_security_scenarios(snapshot):
       }}
       function applyFilter() {{
         const q = document.getElementById('q')?.value || '';
-        const onlyVisible = !!document.getElementById('onlyVisible')?.checked;
+        const onlyVisible = true;
         const items = buildSmarthomeScenarios(lastEntities, lastUiTags, onlyVisible, q);
         renderList(items);
       }}
       document.getElementById('q').addEventListener('input', () => applyFilter());
-      document.getElementById('onlyVisible').addEventListener('change', () => applyFilter());
       // Live updates (SSE), fallback polling
       let sse = null;
       function startSSE() {{
@@ -8991,7 +8968,7 @@ def render_security_users(snapshot):
           <div class="row">
             <div>
               <div class="name">${{escapeHtml(u.DES)}}</div>
-              <div class="sub">ID ${{escapeHtml(String(u.ID))}} Жњ LEV ${{escapeHtml(String(u.LEV||'-'))}} Жњ PRT ${{escapeHtml(String(u.PRT||'-'))}}</div>
+              <div class="sub">ID ${{escapeHtml(String(u.ID))}} | LEV ${{escapeHtml(String(u.LEV||'-'))}} | PRT ${{escapeHtml(String(u.PRT||'-'))}}</div>
             </div>
             <div class="actions">
               <span class="badge ${{u.enabled ? 'ok' : 'bad'}}">${{u.enabled ? 'Abilitato' : 'Disabilitato'}}</span>
@@ -9422,12 +9399,7 @@ def render_security_timers(snapshot):
         <img src="/assets/e-safe_scr.png" alt="e-safe" style="height:34px;opacity:0.92;pointer-events:none;"/>
       </div>
       <div class="title">Programmatori orari</div>
-      <div class="meta">Ultimo aggiornamento: <span id="lastUpdate">-</span> · Totale: <span id="count">0</span></div>
-
-      <div class="toolbar">
-        <input id="q" class="q" placeholder="Cerca (descrizione, scenario, orario, giorni)..." />
-        <label class="chip"><input id="onlyOn" type="checkbox"/> Solo attivi</label>
-      </div>
+      <div class="meta">Totale: <span id="count">0</span></div>
 
       <div class="panel" id="panelSchedule">
         <div class="list" id="list"></div>
@@ -9521,29 +9493,10 @@ def render_security_timers(snapshot):
         }}
         ids.sort((a,b) => (parseInt(a,10)||0) - (parseInt(b,10)||0));
         document.getElementById('count').textContent = String(ids.length);
-        const m = payload.meta && typeof payload.meta === 'object' ? payload.meta : null;
-        const ts = m && m.last_update ? Number(m.last_update) : 0;
-        document.getElementById('lastUpdate').textContent = ts ? new Date(ts * 1000).toISOString().replace('T',' ').slice(0,19) : '-';
       }}
 
       function filteredIds() {{
-        const q = String(document.getElementById('q').value || '').trim().toLowerCase();
-        const onlyOn = !!document.getElementById('onlyOn').checked;
-        const out = [];
-        for (const id of ids) {{
-          const it = timersById.get(id);
-          if (!it) continue;
-          if (onlyOn && !isEnabled(it)) continue;
-          if (!q) {{ out.push(id); continue; }}
-          const hay = (
-            String(it.DES||'') + ' ' +
-            String(scenarioName(it)||'') + ' ' +
-            String(timeStr(it)||'') + ' ' +
-            String(daysStr(it)||'')
-          ).toLowerCase();
-          if (hay.includes(q)) out.push(id);
-        }}
-        return out;
+        return ids.slice();
       }}
 
       function renderList() {{
@@ -9816,9 +9769,6 @@ def render_security_timers(snapshot):
           try {{ msg = JSON.parse(ev.data || '{{}}'); }} catch (_e) {{ msg = null; }}
           if (!msg) return;
           const meta = msg.meta || null;
-          if (meta && meta.last_update) {{
-            document.getElementById('lastUpdate').textContent = new Date(Number(meta.last_update) * 1000).toISOString().replace('T',' ').slice(0,19);
-          }}
           const ents = Array.isArray(msg.entities) ? msg.entities : [];
           let changed = false;
           for (const e of ents) {{
@@ -9840,8 +9790,6 @@ def render_security_timers(snapshot):
         return true;
       }}
 
-      document.getElementById('q').addEventListener('input', () => render());
-      document.getElementById('onlyOn').addEventListener('change', () => render());
       parseInit();
       render();
       startSSE();
@@ -9949,6 +9897,7 @@ def render_security_functions(snapshot):
       .item[data-active="1"] .icon { border-color: rgba(80, 255, 140, 0.45); box-shadow: 0 0 0 1px rgba(80, 255, 140, 0.10) inset; }
       .left { display:flex; align-items:center; gap:12px; }
       .icon { width:36px; height:36px; border-radius:10px; display:flex; align-items:center; justify-content:center; background: rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.10); }
+      .icoMask { width:22px; height:22px; display:block; background: currentColor; -webkit-mask-repeat:no-repeat; -webkit-mask-position:center; -webkit-mask-size:contain; mask-repeat:no-repeat; mask-position:center; mask-size:contain; }
       .name { font-size:16px; }
       .meta { font-size:12px; color: var(--muted); margin-top:2px; }
       .chev { width:20px; height:20px; color:rgba(255,255,255,0.6); }
@@ -10136,6 +10085,59 @@ def render_security_functions(snapshot):
         return 'mdiGridLarge';
       }
 
+      function ingressRoot() {
+        try {
+          const p = String(window.location && window.location.pathname ? window.location.pathname : '');
+          if (p.startsWith('/api/hassio_ingress/')) {
+            const parts = p.split('/').filter(Boolean);
+            if (parts.length >= 3) return '/' + parts.slice(0, 3).join('/');
+          }
+          const m = p.match(/^\\/local_[^\\/]+\\/ingress/);
+          if (m && m[0]) return m[0];
+        } catch (_e) {}
+        return '';
+      }
+      function apiUrl(path) {
+        const root = ingressRoot();
+        const p = String(path || '');
+        if (!root) return p;
+        if (!p || p[0] !== '/') return root + '/' + p.replace(/^\\/+/, '');
+        return root + p;
+      }
+      function mdiExtract(iconValue) {
+        const raw = (iconValue === null || iconValue === undefined) ? '' : String(iconValue);
+        const v = raw.trim();
+        let m = /^mdi:([a-z0-9_-]+)$/i.exec(v);
+        if (!m) m = /mdi:([a-z0-9_-]+)/i.exec(raw);
+        return m ? m[1].toLowerCase() : null;
+      }
+      function mdiName(iconValue, fallback) {
+        const n = mdiExtract(iconValue);
+        if (n) return n;
+        const fb = (fallback === null || fallback === undefined) ? '' : String(fallback).trim();
+        const nf = mdiExtract(fb);
+        if (nf) return nf;
+        if (/^[a-z0-9_-]+$/i.test(fb)) return fb.toLowerCase();
+        return 'grid-large';
+      }
+      function mdiIconUrl(iconValue, fallback) {
+        const name = mdiName(iconValue, fallback);
+        return apiUrl(`/api/icons/mdi/${name}.svg`);
+      }
+      function isMdiValue(iconValue) {
+        return !!mdiExtract(iconValue);
+      }
+      function ensureMaskEl(iconWrap) {
+        if (!iconWrap) return null;
+        let el = iconWrap.querySelector('.icoMask');
+        if (!el) {
+          el = document.createElement('span');
+          el.className = 'icoMask';
+          iconWrap.appendChild(el);
+        }
+        return el;
+      }
+
       const ICONS = {
         // Official MDI SVG paths (MaterialDesignIcons.com / Templarian MaterialDesign repo).
         mdiPump: '<path d="M2 21V15H3.5C3.18 14.06 3 13.05 3 12C3 7.03 7.03 3 12 3H22V9H20.5C20.82 9.94 21 10.95 21 12C21 16.97 16.97 21 12 21H2M5 12C5 13.28 5.34 14.47 5.94 15.5L9.4 13.5C9.15 13.06 9 12.55 9 12C9 11.35 9.21 10.75 9.56 10.26L6.3 7.93C5.5 9.08 5 10.5 5 12M12 19C14.59 19 16.85 17.59 18.06 15.5L14.6 13.5C14.08 14.4 13.11 15 12 15L11.71 15L11.33 18.97L12 19M12 9C13.21 9 14.26 9.72 14.73 10.76L18.37 9.1C17.27 6.68 14.83 5 12 5V9M12 11C11.45 11 11 11.45 11 12C11 12.55 11.45 13 12 13C12.55 13 13 12.55 13 12C13 11.45 12.55 11 12 11Z" />',
@@ -10177,13 +10179,30 @@ def render_security_functions(snapshot):
           const active = String(a.getAttribute('data-active') || '') === '1';
           const style = getTagStyle(tag, tags);
           const iconKey = style ? (active ? (style.icon_on || style.icon_off) : style.icon_off) : iconKeyFallback(tag);
+          const iconWrap = a.querySelector('.icon');
           const svg = a.querySelector('svg.tagIcon');
-          if (svg) {
-            const custom = style ? (active ? (style.svg_on || '') : (style.svg_off || '')) : '';
-            svg.innerHTML = custom || ICONS[iconKey] || ICONS.mdiGridLarge;
+          const custom = style ? (active ? (style.svg_on || '') : (style.svg_off || '')) : '';
+          const useMdi = !custom && isMdiValue(iconKey);
+          if (useMdi && iconWrap) {
+            const url = mdiIconUrl(iconKey, 'grid-large');
+            const mask = ensureMaskEl(iconWrap);
+            if (mask) {
+              mask.style.webkitMaskImage = `url("${url}")`;
+              mask.style.maskImage = `url("${url}")`;
+              mask.style.display = 'block';
+            }
+            if (svg) svg.style.display = 'none';
+          } else {
+            if (svg) {
+              svg.style.display = '';
+              svg.innerHTML = custom || ICONS[String(iconKey || '')] || ICONS.mdiGridLarge;
+            }
+            if (iconWrap) {
+              const mask = iconWrap.querySelector('.icoMask');
+              if (mask) mask.style.display = 'none';
+            }
           }
           const color = style ? (active ? (style.color_on || '') : (style.color_off || '')) : '';
-          const iconWrap = a.querySelector('.icon');
           if (iconWrap) iconWrap.style.color = color || '';
         }
       }
@@ -10527,6 +10546,7 @@ def render_security_functions_outputs(snapshot):
         box-shadow: 0 0 0 1px rgba(255, 210, 74, 0.10) inset;
       }}
       .icoInline svg {{ display:block; }}
+      .icoMask {{ width:18px; height:18px; display:block; background: currentColor; -webkit-mask-repeat:no-repeat; -webkit-mask-position:center; -webkit-mask-size:contain; mask-repeat:no-repeat; mask-position:center; mask-size:contain; }}
       .btn {{
         display:inline-flex;
         align-items:center;
@@ -10571,6 +10591,60 @@ def render_security_functions_outputs(snapshot):
           }}
         }} catch (_e) {{}}
       }})();
+
+      function ingressRoot() {{
+        try {{
+          const p = String(window.location && window.location.pathname ? window.location.pathname : '');
+          if (p.startsWith('/api/hassio_ingress/')) {{
+            const parts = p.split('/').filter(Boolean);
+            if (parts.length >= 3) return '/' + parts.slice(0, 3).join('/');
+          }}
+          const m = p.match(/^\\/local_[^\\/]+\\/ingress/);
+          if (m && m[0]) return m[0];
+        }} catch (_e) {{}}
+        return '';
+      }}
+      function apiUrl(path) {{
+        const root = ingressRoot();
+        const p = String(path || '');
+        if (!root) return p;
+        if (!p || p[0] !== '/') return root + '/' + p.replace(/^\\/+/, '');
+        return root + p;
+      }}
+      function mdiExtract(iconValue) {{
+        const raw = (iconValue === null || iconValue === undefined) ? '' : String(iconValue);
+        const v = raw.trim();
+        let m = /^mdi:([a-z0-9_-]+)$/i.exec(v);
+        if (!m) m = /mdi:([a-z0-9_-]+)/i.exec(raw);
+        return m ? m[1].toLowerCase() : null;
+      }}
+      function mdiName(iconValue, fallback) {{
+        const n = mdiExtract(iconValue);
+        if (n) return n;
+        const fb = (fallback === null || fallback === undefined) ? '' : String(fallback).trim();
+        const nf = mdiExtract(fb);
+        if (nf) return nf;
+        if (/^[a-z0-9_-]+$/i.test(fb)) return fb.toLowerCase();
+        return 'grid-large';
+      }}
+      function mdiIconUrl(iconValue, fallback) {{
+        const name = mdiName(iconValue, fallback);
+        return apiUrl(`/api/icons/mdi/${{name}}.svg`);
+      }}
+      function isMdiValue(iconValue) {{
+        return !!mdiExtract(iconValue);
+      }}
+      function ensureMaskEl(container) {{
+        if (!container) return null;
+        let el = container.querySelector('.icoMask');
+        if (!el) {{
+          el = document.createElement('span');
+          el.className = 'icoMask';
+          container.innerHTML = '';
+          container.appendChild(el);
+        }}
+        return el;
+      }}
       async function sendCmd(type, id, action) {{
         const payload = {{ type: String(type), id: Number(id), action: String(action) }};
         const res = await fetch('/api/cmd', {{
@@ -10691,10 +10765,21 @@ def render_security_functions_outputs(snapshot):
               const custom = String(isOn ? (stl.svg_on || '') : (stl.svg_off || '')).trim();
               const iconKey = String(isOn ? (stl.icon_on || '') : (stl.icon_off || '')).trim();
               const color = String(isOn ? (stl.color_on || '') : (stl.color_off || '')).trim();
-              const svgPath = iconKey ? TAG_STYLE_ICONS[iconKey] : null;
-              const inner = custom || svgPath || '';
-              if (inner) {{
-                ico.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${{inner}}</svg>`;
+              const useMdi = !custom && isMdiValue(iconKey);
+              if (useMdi) {{
+                const url = mdiIconUrl(iconKey, 'grid-large');
+                const m = ensureMaskEl(ico);
+                if (m) {{
+                  m.style.webkitMaskImage = `url("${{url}}")`;
+                  m.style.maskImage = `url("${{url}}")`;
+                  m.style.display = 'block';
+                }}
+              }} else {{
+                const svgPath = iconKey ? TAG_STYLE_ICONS[iconKey] : null;
+                const inner = custom || svgPath || '';
+                if (inner) {{
+                  ico.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${{inner}}</svg>`;
+                }}
               }}
               ico.style.color = color || '';
             }}
@@ -10713,10 +10798,21 @@ def render_security_functions_outputs(snapshot):
               const custom = String(anyOn ? (stl.svg_on || '') : (stl.svg_off || '')).trim();
               const iconKey = String(anyOn ? (stl.icon_on || '') : (stl.icon_off || '')).trim();
               const color = String(anyOn ? (stl.color_on || '') : (stl.color_off || '')).trim();
-              const svgPath = iconKey ? TAG_STYLE_ICONS[iconKey] : null;
-              const inner = custom || svgPath || '';
-              if (inner) {{
-                gico.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${{inner}}</svg>`;
+              const useMdi = !custom && isMdiValue(iconKey);
+              if (useMdi) {{
+                const url = mdiIconUrl(iconKey, 'grid-large');
+                const m = ensureMaskEl(gico);
+                if (m) {{
+                  m.style.webkitMaskImage = `url("${{url}}")`;
+                  m.style.maskImage = `url("${{url}}")`;
+                  m.style.display = 'block';
+                }}
+              }} else {{
+                const svgPath = iconKey ? TAG_STYLE_ICONS[iconKey] : null;
+                const inner = custom || svgPath || '';
+                if (inner) {{
+                  gico.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${{inner}}</svg>`;
+                }}
               }}
               gico.style.color = color || '';
             }}
@@ -10890,6 +10986,7 @@ def render_index_tag_styles(snapshot):
       select {{ width: 100%; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.14); background: rgba(0,0,0,0.20); color: rgba(255,255,255,0.92); }}
       .preview {{ display:flex; align-items:center; gap: 10px; }}
       .ico {{ width: 28px; height: 28px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.03); display:inline-flex; align-items:center; justify-content:center; }}
+      .icoMask {{ width: 18px; height: 18px; background: currentColor; -webkit-mask-repeat:no-repeat; -webkit-mask-position:center; -webkit-mask-size:contain; mask-repeat:no-repeat; mask-position:center; mask-size:contain; display:none; }}
       .toast {{ position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: rgba(0,0,0,0.65); border: 1px solid rgba(255,255,255,0.10); color: rgba(255,255,255,0.92); padding: 10px 14px; border-radius: 12px; backdrop-filter: blur(10px); display:none; z-index: 10; }}
     </style>
   </head>
@@ -10926,6 +11023,7 @@ def render_index_tag_styles(snapshot):
       </table>
     </div>
     <div class="toast" id="toast"></div>
+    <datalist id="iconList"></datalist>
 
     <script>
       const INITIAL = {initial};
@@ -10940,6 +11038,49 @@ def render_index_tag_styles(snapshot):
 
       function esc(s) {{
         return String(s||'').replace(/[&<>\"']/g, c => ({{'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}}[c]||c));
+      }}
+
+      function ingressRoot() {{
+        try {{
+          const p = String(window.location && window.location.pathname ? window.location.pathname : '');
+          if (p.startsWith('/api/hassio_ingress/')) {{
+            const parts = p.split('/').filter(Boolean);
+            if (parts.length >= 3) return '/' + parts.slice(0, 3).join('/');
+          }}
+          const m = p.match(/^\\/local_[^\\/]+\\/ingress/);
+          if (m && m[0]) return m[0];
+        }} catch (_e) {{}}
+        return '';
+      }}
+      function apiUrl(path) {{
+        const root = ingressRoot();
+        const p = String(path || '');
+        if (!root) return p;
+        if (!p || p[0] !== '/') return root + '/' + p.replace(/^\\/+/, '');
+        return root + p;
+      }}
+      function mdiExtract(iconValue) {{
+        const raw = (iconValue === null || iconValue === undefined) ? '' : String(iconValue);
+        const v = raw.trim();
+        let m = /^mdi:([a-z0-9_-]+)$/i.exec(v);
+        if (!m) m = /mdi:([a-z0-9_-]+)/i.exec(raw);
+        return m ? m[1].toLowerCase() : null;
+      }}
+      function mdiName(iconValue, fallback) {{
+        const n = mdiExtract(iconValue);
+        if (n) return n;
+        const fb = (fallback === null || fallback === undefined) ? '' : String(fallback).trim();
+        const nf = mdiExtract(fb);
+        if (nf) return nf;
+        if (/^[a-z0-9_-]+$/i.test(fb)) return fb.toLowerCase();
+        return 'grid-large';
+      }}
+      function mdiIconUrl(iconValue, fallback) {{
+        const name = mdiName(iconValue, fallback);
+        return apiUrl(`/api/icons/mdi/${{name}}.svg`);
+      }}
+      function isMdiValue(iconValue) {{
+        return !!mdiExtract(iconValue);
       }}
 
       const ICONS = {{
@@ -10962,10 +11103,37 @@ def render_index_tag_styles(snapshot):
       }};
 
       const ICON_KEYS = Object.keys(ICONS);
-      function iconSelectHtml(value) {{
-        const v = String(value || '');
-        return ICON_KEYS.map(k => `<option value="${{esc(k)}}" ${{k===v?'selected':''}}>${{esc(k)}}</option>`).join('');
+      const iconListEl = document.getElementById('iconList');
+      function fillIconDatalist(extraIcons) {{
+        if (!iconListEl) return;
+        const set = new Set();
+        for (const k of ICON_KEYS) set.add(String(k));
+        if (Array.isArray(extraIcons)) {{
+          for (const v of extraIcons) {{
+            const s = String(v || '').trim();
+            if (!s) continue;
+            set.add(s);
+          }}
+        }}
+        const arr = Array.from(set.values()).sort((a,b) => a.localeCompare(b, 'it', {{sensitivity:'base'}}));
+        iconListEl.innerHTML = arr.map(v => `<option value="${{esc(v)}}"></option>`).join('');
       }}
+      async function loadUsedIcons() {{
+        try {{
+          const r = await fetch('/api/icons/used', {{ cache: 'no-store' }});
+          if (!r.ok) return [];
+          const data = await r.json();
+          const icons = (data && Array.isArray(data.icons)) ? data.icons : [];
+          return icons.map(x => String(x || '').trim()).filter(Boolean);
+        }} catch (_e) {{
+          return [];
+        }}
+      }}
+      (async function initIconList() {{
+        const used = await loadUsedIcons();
+        fillIconDatalist(used);
+      }})();
+
       function svgFor(key) {{
         const k = String(key || '');
         return ICONS[k] || ICONS.mdiGridLarge;
@@ -10987,14 +11155,14 @@ def render_index_tag_styles(snapshot):
         return `
           <tr data-tag="${{esc(tag)}}">
             <td><input type="text" class="tagName" value="${{esc(tag)}}" placeholder="Es. Luci"/></td>
-            <td><select class="iconOff">${{iconSelectHtml(iconOff)}}</select></td>
-            <td><select class="iconOn">${{iconSelectHtml(iconOn)}}</select></td>
+            <td><input type="text" class="iconOff" list="iconList" value="${{esc(iconOff)}}" placeholder="mdi:shield-home oppure mdiGate"/></td>
+            <td><input type="text" class="iconOn" list="iconList" value="${{esc(iconOn)}}" placeholder="mdi:shield-home oppure mdiGate"/></td>
             <td><input type="color" class="colorOff" value="${{esc(colOff)}}" /></td>
             <td><input type="color" class="colorOn" value="${{esc(colOn)}}" /></td>
             <td>
               <div class="preview">
-                <span class="ico" data-prev="off"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${{svgOff || svgFor(iconOff)}}</svg></span>
-                <span class="ico" data-prev="on"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${{svgOn || svgFor(iconOn)}}</svg></span>
+                <span class="ico" data-prev="off"><span class="icoMask"></span><svg class="pSvg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${{svgOff || svgFor(iconOff)}}</svg></span>
+                <span class="ico" data-prev="on"><span class="icoMask"></span><svg class="pSvg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${{svgOn || svgFor(iconOn)}}</svg></span>
                 <span class="hint">OFF/ON</span>
               </div>
               <input type="hidden" class="svgOff" value="${{esc(svgOff)}}" />
@@ -11021,8 +11189,8 @@ def render_index_tag_styles(snapshot):
           const name = tr.querySelector('input.tagName')?.value || '';
           const tag = String(name || '').trim();
           if (!tag) continue;
-          const icon_off = String(tr.querySelector('select.iconOff')?.value || '').trim();
-          const icon_on = String(tr.querySelector('select.iconOn')?.value || '').trim();
+          const icon_off = String(tr.querySelector('input.iconOff')?.value || '').trim();
+          const icon_on = String(tr.querySelector('input.iconOn')?.value || '').trim();
           const color_off = String(tr.querySelector('input.colorOff')?.value || '').trim();
           const color_on = String(tr.querySelector('input.colorOn')?.value || '').trim();
           const svg_off = String(tr.querySelector('input.svgOff')?.value || '').trim();
@@ -11064,6 +11232,26 @@ def render_index_tag_styles(snapshot):
         for (const [tag, st] of Object.entries(next)) {{
           await sendCmd({{ type: 'tag_styles', action: 'set', value: {{ tag, ...st }} }});
         }}
+        // Prefetch local MDI icons so the user gets immediate feedback after saving.
+        try {{
+          const names = new Set();
+          for (const st of Object.values(next || {{}})) {{
+            if (!st || typeof st !== 'object') continue;
+            for (const k of ['icon_off', 'icon_on']) {{
+              const v = String(st[k] || '').trim();
+              const m = /^mdi:([a-z0-9_-]+)$/i.exec(v);
+              if (m) names.add(m[1].toLowerCase());
+            }}
+          }}
+          for (const n of Array.from(names.values())) {{
+            try {{
+              const r = await fetch(apiUrl(`/api/icons/mdi/${{n}}.svg`), {{ cache: 'no-store' }});
+              if (!r.ok) toast(`Icona non trovata: mdi:${{n}}`, 3200);
+            }} catch (_e) {{
+              toast(`Errore caricando icona: mdi:${{n}}`, 3200);
+            }}
+          }}
+        }} catch (_e) {{}}
         toast('Salvato');
         // Refresh page state.
         INITIAL && Object.keys(INITIAL).forEach(k => delete INITIAL[k]);
@@ -11072,9 +11260,44 @@ def render_index_tag_styles(snapshot):
       }}
 
       function refreshPreviews() {{
+        const mdiWarned = new Set();
+        function applyMdiPreview(container, iconValue, fallbackInner) {{
+          const mask = container ? container.querySelector('.icoMask') : null;
+          const svg = container ? container.querySelector('svg.pSvg') : null;
+          if (!container || !mask || !svg) return;
+          const url = mdiIconUrl(iconValue, 'grid-large');
+          const nm = mdiName(iconValue, 'grid-large');
+          // Always show a fallback immediately, so the preview is never blank even if the request hangs.
+          try {{ mask.style.display = 'none'; }} catch (_e) {{}}
+          try {{ svg.style.display = ''; }} catch (_e) {{}}
+          try {{ svg.innerHTML = fallbackInner || ICONS.mdiGridLarge; }} catch (_e) {{}}
+          const img = new Image();
+          img.onload = () => {{
+            try {{
+              mask.style.webkitMaskImage = `url("${{url}}")`;
+              mask.style.maskImage = `url("${{url}}")`;
+              mask.style.display = 'block';
+              svg.style.display = 'none';
+            }} catch (_e) {{}}
+          }};
+          img.onerror = () => {{
+            try {{
+              mask.style.display = 'none';
+              svg.style.display = '';
+              svg.innerHTML = fallbackInner || ICONS.mdiGridLarge;
+            }} catch (_e) {{}}
+            try {{
+              if (!mdiWarned.has(nm)) {{
+                mdiWarned.add(nm);
+                toast(`Icona MDI non disponibile: mdi:${{nm}}`, 3200);
+              }}
+            }} catch (_e) {{}}
+          }};
+          img.src = url;
+        }}
         for (const tr of tbody.querySelectorAll('tr')) {{
-          const iconOff = String(tr.querySelector('select.iconOff')?.value || 'mdiGridLarge');
-          const iconOn = String(tr.querySelector('select.iconOn')?.value || iconOff || 'mdiGridLarge');
+          const iconOff = String(tr.querySelector('input.iconOff')?.value || 'mdiGridLarge');
+          const iconOn = String(tr.querySelector('input.iconOn')?.value || iconOff || 'mdiGridLarge');
           const colOff = String(tr.querySelector('input.colorOff')?.value || '#a9b1c3');
           const colOn = String(tr.querySelector('input.colorOn')?.value || '#1ed760');
           const svgOff = String(tr.querySelector('input.svgOff')?.value || '').trim();
@@ -11083,13 +11306,31 @@ def render_index_tag_styles(snapshot):
           const on = tr.querySelector('[data-prev="on"]');
           if (off) {{
             off.style.color = colOff;
-            const svg = off.querySelector('svg');
-            if (svg) svg.innerHTML = svgOff || svgFor(iconOff);
+            const mask = off.querySelector('.icoMask');
+            const svg = off.querySelector('svg.pSvg');
+            if (svgOff) {{
+              if (mask) mask.style.display = 'none';
+              if (svg) {{ svg.style.display = ''; svg.innerHTML = svgOff; }}
+            }} else if (isMdiValue(iconOff)) {{
+              applyMdiPreview(off, iconOff, ICONS.mdiGridLarge);
+            }} else {{
+              if (mask) mask.style.display = 'none';
+              if (svg) {{ svg.style.display = ''; svg.innerHTML = svgFor(iconOff); }}
+            }}
           }}
           if (on) {{
             on.style.color = colOn;
-            const svg = on.querySelector('svg');
-            if (svg) svg.innerHTML = svgOn || svgFor(iconOn);
+            const mask = on.querySelector('.icoMask');
+            const svg = on.querySelector('svg.pSvg');
+            if (svgOn) {{
+              if (mask) mask.style.display = 'none';
+              if (svg) {{ svg.style.display = ''; svg.innerHTML = svgOn; }}
+            }} else if (isMdiValue(iconOn)) {{
+              applyMdiPreview(on, iconOn, ICONS.mdiGridLarge);
+            }} else {{
+              if (mask) mask.style.display = 'none';
+              if (svg) {{ svg.style.display = ''; svg.innerHTML = svgFor(iconOn); }}
+            }}
           }}
         }}
       }}
@@ -12067,25 +12308,80 @@ def render_logs(snapshot):
     <title>Ksenia Lares - Registro Eventi</title>
     <style>
       :root {{
-        --bg: #0f1115;
+        --bg0: #05070b;
         --fg: #e7eaf0;
         --muted: #a9b1c3;
-        --border: #2a2f3a;
-        --hover: #171a21;
-        --badge-bg: #1f2430;
-        --th-bg: #0f1115;
-        --input-bg: #0f1115;
+        --border: rgba(255,255,255,0.12);
+        --row: rgba(255,255,255,0.06);
+        --row2: rgba(255,255,255,0.045);
+        --hover: rgba(255,255,255,0.06);
+        --badge-bg: rgba(0,0,0,0.25);
+        --th-bg: rgba(0,0,0,0.45);
+        --input-bg: rgba(0,0,0,0.28);
         --input-fg: #e7eaf0;
       }}
+      html,body {{ height:100%; }}
       body {{
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
-        margin: 16px;
-        background: var(--bg);
+        margin: 0;
+        background: radial-gradient(1200px 800px at 50% 50%, #1a2230 0%, var(--bg0) 60%, #000 100%);
         color: var(--fg);
       }}
       a {{ color: var(--fg); text-decoration: none; }}
+      .bg {{
+        position:fixed; inset:0;
+        background: radial-gradient(900px 600px at 50% 50%, rgba(255,255,255,0.08), rgba(0,0,0,0.55));
+        filter: blur(28px);
+        opacity: 0.85;
+        pointer-events:none;
+      }}
+      .refreshBtn {{
+        position: fixed; right: 14px; top: 14px;
+        width: 44px; height: 44px; border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(0,0,0,0.25);
+        color: rgba(255,255,255,0.92);
+        display: inline-flex; align-items: center; justify-content: center;
+        backdrop-filter: blur(10px);
+        z-index: 5;
+        cursor: pointer;
+      }}
+      .topbar {{
+        position:sticky; top:0; left:0; right:0;
+        display:flex; align-items:center; justify-content:center; gap:18px;
+        height:72px;
+        background: rgba(0,0,0,0.55);
+        backdrop-filter: blur(10px);
+        z-index: 4;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+      }}
+      .back {{
+        position: absolute;
+        left: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.10);
+        background: rgba(0,0,0,0.20);
+        color: rgba(255,255,255,0.88);
+      }}
+      .tab {{
+        font-size: 18px; letter-spacing: 0.5px;
+        color: rgba(255,255,255,0.75);
+        text-decoration:none;
+        padding: 10px 14px;
+        border-radius: 12px;
+      }}
+      .tab.active {{ color: #fff; }}
+      .wrap {{ max-width: 1200px; margin: 0 auto; padding: 18px 16px 48px; }}
+      .title {{ font-size: 22px; font-weight: 800; margin: 8px 0 8px; }}
       .meta {{ color: var(--muted); font-size: 13px; margin-bottom: 12px; }}
-      .badge {{ display:inline-block; padding:2px 8px; border-radius:10px; background: var(--badge-bg); }}
+      .badge {{ display:inline-block; padding:4px 10px; border-radius:999px; background: var(--badge-bg); border:1px solid rgba(255,255,255,0.12); }}
       .toolbar {{ display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }}
       input {{
         padding: 8px;
@@ -12097,10 +12393,10 @@ def render_logs(snapshot):
         border-radius: 8px;
       }}
       button {{
-        background: var(--badge-bg);
+        background: rgba(0,0,0,0.10);
         color: var(--fg);
-        border: 1px solid var(--border);
-        border-radius: 10px;
+        border: 1px solid rgba(255,255,255,0.14);
+        border-radius: 999px;
         padding: 6px 10px;
         cursor: pointer;
       }}
@@ -12108,11 +12404,12 @@ def render_logs(snapshot):
       #wrap {{
         width: 100%;
         overflow: auto;
-        border: 1px solid var(--border);
-        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 14px;
+        background: rgba(0,0,0,0.18);
       }}
       table {{ border-collapse: collapse; width: 100%; }}
-      th, td {{ border-bottom: 1px solid var(--border); padding: 10px 10px; vertical-align: top; }}
+      th, td {{ border-bottom: 1px solid rgba(255,255,255,0.06); padding: 10px 10px; vertical-align: top; }}
       th {{ text-align: left; position: sticky; top: 0; background: var(--th-bg); }}
       tr:hover {{ background: var(--hover); }}
       .small {{ font-size: 12px; color: var(--muted); }}
@@ -12128,20 +12425,31 @@ def render_logs(snapshot):
     </style>
   </head>
   <body>
-    <div style="position:sticky;top:0;left:0;right:0;z-index:5;display:flex;align-items:center;justify-content:center;gap:12px;height:64px;background:rgba(0,0,0,0.55);backdrop-filter:blur(10px);border-bottom:1px solid rgba(255,255,255,0.06);">
-      <a href="/index_debug" style="color:#e8edf7;text-decoration:none;font-weight:700;">index_debug</a>
-      <a href="/security" style="color:#e8edf7;text-decoration:none;font-weight:700;">sicurezza</a>
+    <div class="bg"></div>
+    <button class="refreshBtn" id="refreshBtn" type="button" title="Aggiorna stato" aria-label="Aggiorna">
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5a5 5 0 1 1-9.9-1H5.02a7 7 0 1 0 12.63-4.65z"/>
+      </svg>
+    </button>
+    <div class="topbar">
+      <a class="tab" href="/security">Stato</a>
+      <a class="tab" href="/security/partitions">Partizioni</a>
+      <a class="tab" href="/security/sensors">Sensori</a>
+      <a class="tab" href="/security/functions">Funzioni</a>
     </div>
-    <div style="display:flex;align-items:center;justify-content:flex-start;margin:10px 0 0 0;">
-      <img src="/assets/e-safe_scr.png" alt="e-safe" style="height:34px;opacity:0.92;pointer-events:none;"/>
-    </div>
-    <h2>Ksenia Lares - Registro Eventi {f'<span class="badge">v{_html_escape(ADDON_VERSION)}</span>' if ADDON_VERSION else ''}</h2>
-    <div class="meta">
-      Log: <span id="count" class="badge">{len(logs)}</span>
-      &nbsp;|&nbsp; Last update: <span id="lastUpdate" class="badge">{_html_escape(_fmt_ts(meta.get("last_update")))}</span>
-      &nbsp;|&nbsp; UI: <span class="badge">{_html_escape(UI_REV)}</span>
-    </div>
-    <div class="toolbar">
+    <div class="wrap">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <img src="/assets/e-safe_scr.png" alt="e-safe" style="height:34px;opacity:0.92;pointer-events:none;"/>
+          <div class="title">Registro eventi {f'<span class="badge">v{_html_escape(ADDON_VERSION)}</span>' if ADDON_VERSION else ''}</div>
+        </div>
+        <div class="meta">
+          Log: <span id="count" class="badge">{len(logs)}</span>
+          &nbsp;|&nbsp; Aggiornato: <span id="lastUpdate" class="badge">{_html_escape(_fmt_ts(meta.get("last_update")))}</span>
+          &nbsp;|&nbsp; UI: <span class="badge">{_html_escape(UI_REV)}</span>
+        </div>
+      </div>
+      <div class="toolbar">
       <button id="toggle">Auto-refresh: ON</button>
       <input id="q" placeholder="Cerca (evento/info/tipo/data/ora)..." oninput="applyFilter()"/>
       <button onclick="exportJson()">Esporta JSON</button>
@@ -12153,9 +12461,9 @@ def render_logs(snapshot):
           <option value="50">50</option>
           <option value="100">100</option>
         </select>
-        <button onclick="prevPage()">‹</button>
+        <button onclick="prevPage()" aria-label="Pagina precedente">‹</button>
         <span class="small">Pagina <span id="pageNo">1</span>/<span id="pageMax">1</span></span>
-        <button onclick="nextPage()">›</button>
+        <button onclick="nextPage()" aria-label="Pagina successiva">›</button>
       </span>
     </div>
     <div id="wrap">
@@ -12172,6 +12480,7 @@ def render_logs(snapshot):
         <tbody id="tb"></tbody>
       </table>
     </div>
+    </div>
     <script id="init" type="application/json">{init_payload}</script>
     <script>
       let pollingOn = true;
@@ -12181,6 +12490,21 @@ def render_logs(snapshot):
       let filterQ = '';
       let logById = new Map();
       let ids = [];
+
+      function apiRoot() {{
+        const p = String(window.location && window.location.pathname ? window.location.pathname : '');
+        if (p.startsWith('/api/hassio_ingress/')) {{
+          const parts = p.split('/').filter(Boolean);
+          if (parts.length >= 3) return '/' + parts.slice(0, 3).join('/');
+        }}
+        return '';
+      }}
+      function apiUrl(path) {{
+        const root = apiRoot();
+        const p = String(path || '');
+        if (p.startsWith('/')) return root + p;
+        return root + '/' + p;
+      }}
 
       function esc(s) {{
         return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('\"','&quot;').replaceAll(\"'\",'&#39;');
@@ -12214,7 +12538,7 @@ def render_logs(snapshot):
         const iml = String(it.IML ?? '');
         const when = (date && time) ? (date + ' ' + time) : (date || time);
         const info = [i1, i2].filter(Boolean).join(' | ');
-        const img = (iml === 'T') ? 'Sì' : (iml === 'F' ? 'No' : iml);
+        const img = (iml === 'T') ? 'Si' : (iml === 'F' ? 'No' : iml);
         return '<tr>' +
           '<td class="mono">' + esc(typ) + '</td>' +
           '<td class="mono">' + esc(when) + '</td>' +
@@ -12282,9 +12606,38 @@ def render_logs(snapshot):
         setTimeout(() => URL.revokeObjectURL(a.href), 1000);
       }}
 
+      async function fetchSnap() {{
+        try {{
+          const res = await fetch(apiUrl('/api/entities'), {{cache:'no-store'}});
+          if (!res.ok) return;
+          const data = await res.json();
+          const meta = data.meta || {{}};
+          const lastUpdateStr = meta.last_update ? new Date(meta.last_update * 1000).toISOString().replace('T', ' ').slice(0, 19) : '-';
+          const el = document.getElementById('lastUpdate');
+          if (el) el.innerText = lastUpdateStr;
+
+          const ents = data.entities || [];
+          logById = new Map();
+          ids = [];
+          for (const e of ents) {{
+            if (!e || String(e.type || '').toLowerCase() !== 'logs') continue;
+            const id = String(e.id ?? '');
+            if (!id) continue;
+            const merged = Object.assign({{}}, e.static || {{}}, e.realtime || {{}});
+            merged.ID = merged.ID ?? e.id;
+            logById.set(id, merged);
+            ids.push(id);
+          }}
+          ids.sort((a,b) => (parseInt(b,10)||0) - (parseInt(a,10)||0));
+          document.getElementById('count').innerText = String(ids.length);
+          page = 1;
+          render();
+        }} catch (_e) {{}}
+      }}
+
       function connectSSE() {{
         if (sse) try {{ sse.close(); }} catch (_e) {{}}
-        sse = new EventSource('/api/stream');
+        sse = new EventSource(apiUrl('/api/stream'));
         sse.onmessage = (ev) => {{
           if (!pollingOn) return;
           let data = null;
@@ -12323,6 +12676,7 @@ def render_logs(snapshot):
         }};
       }}
 
+      document.getElementById('refreshBtn').onclick = fetchSnap;
       document.getElementById('toggle').onclick = () => {{
         pollingOn = !pollingOn;
         document.getElementById('toggle').innerText = 'Auto-refresh: ' + (pollingOn ? 'ON' : 'OFF');
@@ -13066,6 +13420,21 @@ class _Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             return
 
+    def _send_bytes(self, status, content_type, body: bytes, cache_control: str | None = None):
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        if cache_control:
+            self.send_header("Cache-Control", str(cache_control))
+        else:
+            self.send_header("Cache-Control", "no-store, max-age=0")
+            self.send_header("Pragma", "no-cache")
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+
     def do_GET(self):
         raw_path = urlparse(self.path).path
 
@@ -13137,18 +13506,56 @@ class _Handler(BaseHTTPRequestHandler):
             except Exception:
                 self._send(404, "text/plain; charset=utf-8", b"not found")
                 return
-            self.send_response(200)
-            self.send_header("Content-Type", "image/png")
-            self.send_header("Cache-Control", "no-store, max-age=0")
-            self.send_header("Pragma", "no-cache")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._send_bytes(200, "image/png", body, cache_control="public, max-age=604800, immutable")
+            return
+
+        if path.startswith("/api/icons/mdi/") and path.endswith(".svg"):
+            raw = path[len("/api/icons/mdi/") :]
+            name = raw[:-4] if raw.lower().endswith(".svg") else raw
+            safe = _parse_mdi_icon(f"mdi:{name}")
+            if not safe:
+                self._send(404, "text/plain; charset=utf-8", b"not found")
+                return
+            try:
+                # Prefer bundled icons; fall back to /data cache (download on-demand).
+                bundled = os.path.join(_MDI_DIR, f"{safe}.svg")
+                cached = _mdi_cache_path(safe)
+                src = bundled if os.path.exists(bundled) else cached
+                if not os.path.exists(src):
+                    if not _ensure_mdi_cached(safe):
+                        self._send(404, "text/plain; charset=utf-8", b"not found")
+                        return
+                    src = cached
+                with open(src, "rb") as f:
+                    body = f.read()
+            except Exception:
+                self._send(404, "text/plain; charset=utf-8", b"not found")
+                return
+            self._send_bytes(200, "image/svg+xml", body, cache_control="public, max-age=86400")
+            return
+
+        if path == "/api/icons/used":
+            icons: set[str] = set()
+            try:
+                data = _load_ui_tags()
+                styles = data.get("tag_styles") if isinstance(data, dict) else None
+                if isinstance(styles, dict):
+                    for st in styles.values():
+                        if not isinstance(st, dict):
+                            continue
+                        for k in ("icon_off", "icon_on"):
+                            mdi = _parse_mdi_icon(str(st.get(k) or ""))
+                            if mdi:
+                                icons.add(f"mdi:{mdi}")
+            except Exception:
+                icons = set()
+            body = json.dumps({"icons": sorted(icons)}, ensure_ascii=False).encode("utf-8")
+            self._send(200, "application/json; charset=utf-8", body)
             return
 
         if path in ("/security", "/security/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13160,7 +13567,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/security/partitions", "/security/partitions/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13168,7 +13575,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/security/scenarios", "/security/scenarios/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13176,7 +13583,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/security/sensors", "/security/sensors/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13184,7 +13591,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/security/reset", "/security/reset/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13192,7 +13599,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/security/info", "/security/info/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13204,7 +13611,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/security/timers", "/security/timers/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13212,7 +13619,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/security/functions", "/security/functions/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13220,7 +13627,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/security/functions/all", "/security/functions/all/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13228,7 +13635,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/security/functions/outputs", "/security/functions/outputs/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13236,7 +13643,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/security/favorites", "/security/favorites/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13244,7 +13651,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/index_debug/tag_styles", "/index_debug/tag_styles/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -13252,7 +13659,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path in ("/", "/index_debug", "/index_debug/"):
             try:
-                print(f"[INFO] UI GET {path} from {self.client_address[0]}")
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
             except Exception:
                 pass
             snap = self.state.snapshot()
@@ -14413,4 +14820,5 @@ def render_thermostat_detail(snapshot, thermostat_id: str):
         .replace("__INIT__", init)
     )
     return html.encode("utf-8")
+
 

@@ -18,10 +18,10 @@ Add-on E-Manager  che collega una centrale **Ksenia Lares** e pubblica in **MQTT
 - Centrale Ksenia raggiungibile via rete (IP/porta) e PIN.
 
 ## Installazione
-1. Aggiungi il repository Git in **Impostazioni ? Componenti aggiuntivi ? Add-on Store ? Repository** (menu ?).
-2. Installa l?add-on **e-Safe Ksenia Lares 4.0** dal nuovo repository.
+1. Copia la cartella dell’add-on in `addons/local/ksenia_lares_addon` (o installa dal tuo repository locale).
+2. Installa l’add-on da **Impostazioni → Componenti aggiuntivi → Add-on Store → Local add-ons**.
 3. Configura le opzioni (vedi sotto).
-4. Avvia l?add-on.
+4. Avvia l’add-on.
 
 ## Configurazione (opzioni)
 Le principali opzioni sono in **Configurazione** dell’add-on:
@@ -129,6 +129,23 @@ In E-Manager , i device MQTT sono raggruppati per categoria (es. “Sensori”, 
 
 ### Log
 I log dell’add-on sono in **Supervisor → Add-on → Log**.
+
+## Git + sync (PC ? Samba)
+- Repo GitHub: `https://github.com/edmondoalex/e-safe_ksenia_lares_4.0_addon`
+- Samba (deploy HA): `\\192.168.3.24\addons\ksenia_lares_addon`
+
+### Clone sul PC
+Esempio:
+- `git clone https://github.com/edmondoalex/e-safe_ksenia_lares_4.0_addon.git C:\Users\NUC Alex\workspace\e-safe_ksenia_lares_4.0_addon`
+
+### Import automatico da Samba ? repo PC (e commit/push opzionali)
+Dal repo locale:
+- Solo sync file: `powershell -ExecutionPolicy Bypass -File tools\sync-samba-to-pc.ps1`
+- Sync + commit: `powershell -ExecutionPolicy Bypass -File tools\sync-samba-to-pc.ps1 -AutoCommit -CommitMessage "Update"`
+- Sync + commit + push: `powershell -ExecutionPolicy Bypass -File tools\sync-samba-to-pc.ps1 -AutoCommit -Push -CommitMessage "Update"`
+
+Automazione (Windows **Operazioni pianificate**, es. ogni 1 minuto):
+- `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\NUC Alex\workspace\e-safe_ksenia_lares_4.0_addon\tools\sync-samba-to-pc.ps1" -AutoCommit -Push -CommitMessage "Auto sync"`
 
 ## Note
 - Audio/beep su browser: spesso richiede un tap dell’utente per sbloccare l’audio (policy browser).

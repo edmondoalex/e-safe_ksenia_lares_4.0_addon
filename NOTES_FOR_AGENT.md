@@ -343,3 +343,24 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/websocketmanager.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Ripristino baseline produzione 5.2.60 in Git
+- Allineato il contenuto dell'add-on (`ksenia_lares_addon/`) alla versione produzione 5.2.60 proveniente dal backup Samba `\\192.168.3.24\addons\_backup\ksenia_lares_addon_20260323_162341`.
+- Ripristinati anche asset/script presenti solo in produzione (es. `app/www/mdi/*`, `tools/sync-samba-to-pc.ps1`) per avere in Git la stessa base in campo.
+- Versione in `ksenia_lares_addon/config.yaml` riportata a `5.2.60` (baseline produzione, nessun incremento ulteriore in questa operazione).
+
+File toccati:
+- ksenia_lares_addon/config.yaml
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/app/debug_server.py
+- ksenia_lares_addon/app/websocketmanager.py
+- ksenia_lares_addon/app/wscall.py
+- ksenia_lares_addon/Dockerfile
+- ksenia_lares_addon/README.md
+- ksenia_lares_addon/_security_page.html
+- ksenia_lares_addon/app/www/mdi/lightbulb-group.svg
+- ksenia_lares_addon/app/www/mdi/link-variant.svg
+- ksenia_lares_addon/app/www/mdi/shape.svg
+- ksenia_lares_addon/app/www/mdi/shield-home.svg
+- ksenia_lares_addon/app/www/mdi/shield-lock.svg
+- ksenia_lares_addon/app/www/mdi/window-shutter.svg
+- ksenia_lares_addon/tools/sync-samba-to-pc.ps1

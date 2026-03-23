@@ -11,6 +11,9 @@ import inspect
 from wscall import (
     ws_login,
     realtime,
+    realtime_select,
+    REALTIME_TYPES_LIST,
+    build_realtime_register_cmd,
     readData,
     readZones,
     exeScenario,
@@ -49,7 +52,6 @@ class WebSocketManager:
         debug_thermostats: bool = False,
         output_debug_verbose: bool = False,
         reconnect_cooldown_sec: int | float = 8,
-        extra_thermostat_names: dict | None = None,
     ):
         self._ip = ip
         self._port = port
@@ -88,6 +90,7 @@ class WebSocketManager:
         self._ws_lock = asyncio.Lock()
         self._command_queue = asyncio.Queue()  # Command queue
         self._pending_commands = {}
+        self._pending_realtime_select = {}
         self._listener_task = None
         self._cmd_task = None
         self._reconnect_task = None
@@ -95,6 +98,8 @@ class WebSocketManager:
         self._schedulers_task = None
         self._thermostats_task = None
         self._zones_task = None
+        self._outputs_task = None
+        self._systems_task = None
         self._last_zones_by_id = {}
         self._on_reconnect = None  # async callback(read_data, realtime_initial, system_version)
 
@@ -105,25 +110,6 @@ class WebSocketManager:
         self._connSecure = 0  # 0: no SSL, 1: SSL
         self._last_thermo_cfg_by_id = {}
         self._cooldown_until = 0.0
-        self._extra_thermostat_names = {}
-        if isinstance(extra_thermostat_names, dict):
-            for k, v in extra_thermostat_names.items():
-                nid = self._norm_id(k)
-                if nid is None:
-                    continue
-                name = str(v).strip() if v not in (None, "") else f"Thermostat {nid}"
-                self._extra_thermostat_names[nid] = name
-
-    def set_extra_thermostat_names(self, names: dict | None):
-        out = {}
-        if isinstance(names, dict):
-            for k, v in names.items():
-                nid = self._norm_id(k)
-                if nid is None:
-                    continue
-                name = str(v).strip() if v not in (None, "") else f"Thermostat {nid}"
-                out[nid] = name
-        self._extra_thermostat_names = out
 
     async def _notify_listeners(self, entity_type: str, payload):
         callbacks = self.listeners.get(entity_type, [])
@@ -153,37 +139,6 @@ class WebSocketManager:
         tof = item.get("TOF")
         if isinstance(tof, dict):
             out["TOF"] = {k: tof.get(k) for k in ("T", "E")}
-        return out
-
-    def _norm_id(self, value):
-        if value is None:
-            return None
-        s = str(value).strip()
-        if not s:
-            return None
-        if s.isdigit():
-            try:
-                return str(int(s))
-            except Exception:
-                return s
-        return s
-
-    def _known_thermostat_ids(self) -> set[str]:
-        # Strict mode: expose thermostat IDs only when explicitly enabled from DOMUS UI.
-        return set(self._extra_thermostat_names.keys())
-
-    def _sensor_to_thermostat_map(self) -> dict[str, str]:
-        out = {}
-        rd = self._readData if isinstance(self._readData, dict) else {}
-        for key in ("TEMPERATURES", "HUMIDITY"):
-            for item in (rd.get(key) or []):
-                if not isinstance(item, dict):
-                    continue
-                sid = self._norm_id(item.get("ID"))
-                tid = self._norm_id(item.get("ID_TH"))
-                if sid is None or tid is None:
-                    continue
-                out[sid] = tid
         return out
 
     def set_on_reconnect(self, callback):
@@ -216,6 +171,10 @@ class WebSocketManager:
             self._thermostats_task = asyncio.create_task(self.thermostats_cfg_poller())
         if self._zones_task is None or self._zones_task.done():
             self._zones_task = asyncio.create_task(self.zones_poller())
+        if self._outputs_task is None or self._outputs_task.done():
+            self._outputs_task = asyncio.create_task(self.outputs_poller())
+        if self._systems_task is None or self._systems_task.done():
+            self._systems_task = asyncio.create_task(self.systems_poller())
 
     def _zone_compact(self, z: dict) -> dict:
         if not isinstance(z, dict):
@@ -476,6 +435,133 @@ class WebSocketManager:
                     await self._notify_listeners("zones", updates)
             except Exception as exc:
                 self._logger.error("zones poller error: %s", exc)
+            await asyncio.sleep(poll_s)
+
+    async def outputs_poller(self):
+        # Periodically refresh realtime outputs snapshot: some panels miss emitting STATUS_OUTPUTS
+        # for certain changes, so this helps keep UI/MQTT aligned.
+        poll_s = 20.0
+        while True:
+            if not self._running:
+                await asyncio.sleep(2.0)
+                continue
+            try:
+                if not self._ws or not self._loginId:
+                    await asyncio.sleep(poll_s)
+                    continue
+                # Do not call websocket.recv from this poller: it would block the realtime listener.
+                resp = await self.realtime_select_async(
+                    ["STATUS_OUTPUTS"], register_types=REALTIME_TYPES_LIST, timeout=4.0
+                )
+                payload = resp.get("PAYLOAD") if isinstance(resp, dict) else None
+                updates = payload.get("STATUS_OUTPUTS") if isinstance(payload, dict) else None
+                if isinstance(updates, dict):
+                    updates = [updates]
+                if not isinstance(updates, list) or not updates:
+                    await asyncio.sleep(poll_s)
+                    continue
+
+                # Merge into cached realtime snapshot (by ID) and emit small patches.
+                patches = []
+                try:
+                    if self._realtimeInitialData is None:
+                        self._realtimeInitialData = {}
+                    if "PAYLOAD" not in self._realtimeInitialData:
+                        self._realtimeInitialData["PAYLOAD"] = {}
+                    prev = self._realtimeInitialData["PAYLOAD"].get("STATUS_OUTPUTS") or []
+                    if isinstance(prev, dict):
+                        prev = [prev]
+                    prev_by_id = {}
+                    if isinstance(prev, list):
+                        for it in prev:
+                            if not isinstance(it, dict):
+                                continue
+                            prev_by_id[str(it.get("ID"))] = it
+                    for it in updates:
+                        if not isinstance(it, dict):
+                            continue
+                        oid = str(it.get("ID") or "").strip()
+                        if not oid:
+                            continue
+                        old = prev_by_id.get(oid) if isinstance(prev_by_id.get(oid), dict) else None
+                        if old is None:
+                            patches.append(it)
+                            prev_by_id[oid] = it
+                            continue
+                        merged = {**old, **it}
+                        prev_by_id[oid] = merged
+                        patch = {"ID": oid}
+                        changed = False
+                        for k in ("STA", "POS", "LEV", "DIM"):
+                            if k in it and (old.get(k) != it.get(k)):
+                                patch[k] = it.get(k)
+                                changed = True
+                        if changed:
+                            patches.append(patch)
+                    self._realtimeInitialData["PAYLOAD"]["STATUS_OUTPUTS"] = list(prev_by_id.values())
+                except Exception:
+                    patches = updates
+
+                if patches:
+                    await self._notify_listeners("lights", patches)
+                    await self._notify_listeners("switches", patches)
+                    await self._notify_listeners("covers", patches)
+            except Exception as exc:
+                self._logger.error("outputs poller error: %s", exc)
+            await asyncio.sleep(poll_s)
+
+    async def systems_poller(self):
+        # Periodically refresh system/partition snapshot: some panels miss emitting STATUS_SYSTEM /
+        # STATUS_PARTITIONS for arm/disarm changes, which can leave UI/MQTT stuck on old state.
+        poll_s = 12.0
+        types = ["STATUS_SYSTEM", "STATUS_PARTITIONS"]
+        while True:
+            if not self._running:
+                await asyncio.sleep(2.0)
+                continue
+            try:
+                if not self._ws or not self._loginId:
+                    await asyncio.sleep(poll_s)
+                    continue
+                # Do not call websocket.recv from this poller: it would block the realtime listener.
+                resp = await self.realtime_select_async(
+                    types, register_types=REALTIME_TYPES_LIST, timeout=4.0
+                )
+                payload = resp.get("PAYLOAD") if isinstance(resp, dict) else None
+                if not isinstance(payload, dict):
+                    await asyncio.sleep(poll_s)
+                    continue
+                if "HomeAssistant" in payload and isinstance(payload.get("HomeAssistant"), dict):
+                    data = payload.get("HomeAssistant") or {}
+                else:
+                    data = next(iter(payload.values()), {})
+                if not isinstance(data, dict):
+                    await asyncio.sleep(poll_s)
+                    continue
+
+                # Keep cached initial snapshot coherent (used by UI/MQTT seed paths).
+                if self._realtimeInitialData is None:
+                    self._realtimeInitialData = {}
+                if "PAYLOAD" not in self._realtimeInitialData:
+                    self._realtimeInitialData["PAYLOAD"] = {}
+
+                if "STATUS_PARTITIONS" in data:
+                    parts = data.get("STATUS_PARTITIONS")
+                    if isinstance(parts, dict):
+                        parts = [parts]
+                    if isinstance(parts, list) and parts:
+                        self._realtimeInitialData["PAYLOAD"]["STATUS_PARTITIONS"] = parts
+                        await self._notify_listeners("partitions", parts)
+
+                if "STATUS_SYSTEM" in data:
+                    systems = data.get("STATUS_SYSTEM")
+                    if isinstance(systems, dict):
+                        systems = [systems]
+                    if isinstance(systems, list) and systems:
+                        self._realtimeInitialData["PAYLOAD"]["STATUS_SYSTEM"] = systems
+                        await self._notify_listeners("systems", systems)
+            except Exception as exc:
+                self._logger.error("systems poller error: %s", exc)
             await asyncio.sleep(poll_s)
 
     async def _close_ws(self):
@@ -807,6 +893,10 @@ class WebSocketManager:
                     self._logger.error(f"Error decoding JSON: {e}")
                     continue
                 try:
+                    try:
+                        self._maybe_resolve_realtime_select(data)
+                    except Exception:
+                        pass
                     await self.handle_message(data)
                 except Exception as exc:
                     # Don't let malformed/unexpected payloads kill the listener task
@@ -816,6 +906,53 @@ class WebSocketManager:
                     except Exception:
                         pass
                     continue
+
+    def _maybe_resolve_realtime_select(self, msg: dict):
+        try:
+            if not isinstance(msg, dict):
+                return
+            if msg.get("CMD") != "REALTIME":
+                return
+            mid = str(msg.get("ID") or "")
+            if not mid:
+                return
+            entry = self._pending_realtime_select.get(mid)
+            if not isinstance(entry, dict):
+                return
+            fut = entry.get("future")
+            want = entry.get("types") or []
+            if fut is None or getattr(fut, "done", lambda: True)():
+                self._pending_realtime_select.pop(mid, None)
+                return
+            payload = msg.get("PAYLOAD")
+            if not isinstance(payload, dict):
+                return
+            if want and not any(t in payload for t in want):
+                return
+            fut.set_result(msg)
+            self._pending_realtime_select.pop(mid, None)
+        except Exception:
+            return
+
+    async def realtime_select_async(self, types, register_types=None, timeout=4.0):
+        if not self._ws or not self._loginId:
+            return {}
+        expected_id, json_cmd, wait_types = build_realtime_register_cmd(
+            self._loginId, types, register_types=register_types
+        )
+        future = asyncio.get_running_loop().create_future()
+        self._pending_realtime_select[str(expected_id)] = {"future": future, "types": wait_types}
+        try:
+            async with self._ws_lock:
+                await self._ws.send(json_cmd)
+        except Exception:
+            self._pending_realtime_select.pop(str(expected_id), None)
+            return {}
+        try:
+            return await asyncio.wait_for(future, timeout=float(timeout or 4.0))
+        except Exception:
+            self._pending_realtime_select.pop(str(expected_id), None)
+            return {}
 
     """
     Handles messages received from the Ksenia Lares WebSocket server.
@@ -922,10 +1059,19 @@ class WebSocketManager:
 
         elif message.get("CMD") == "REALTIME":
             if "STATUS_OUTPUTS" in data:
-                self._logger.debug(f"Updating state for outputs: {data['STATUS_OUTPUTS']}")
+                updates_raw = data.get("STATUS_OUTPUTS")
+                # Some panels send a single object instead of a list for realtime updates.
+                # Normalize so downstream (state/UI/MQTT) always sees a list.
+                if isinstance(updates_raw, dict):
+                    updates = [updates_raw]
+                elif isinstance(updates_raw, list):
+                    updates = updates_raw
+                else:
+                    updates = []
+
+                self._logger.debug(f"Updating state for outputs: {updates_raw}")
                 if self._output_debug_verbose:
                     try:
-                        updates = data.get("STATUS_OUTPUTS")
                         if isinstance(updates, list):
                             sample = []
                             for it in updates[:12]:
@@ -944,23 +1090,45 @@ class WebSocketManager:
                         else:
                             self._logger.info(
                                 "WS1 REALTIME STATUS_OUTPUTS type=%s",
-                                type(updates).__name__,
+                                type(updates_raw).__name__,
                             )
                     except Exception:
                         pass
-                # Update the initial data
-                if self._realtimeInitialData is None:
-                    self._realtimeInitialData = {}
-                if "PAYLOAD" not in self._realtimeInitialData:
-                    self._realtimeInitialData["PAYLOAD"] = {}
-                self._realtimeInitialData["PAYLOAD"]["STATUS_OUTPUTS"] = data[
-                    "STATUS_OUTPUTS"
-                ]
+
+                if updates:
+                    # Update the initial realtime snapshot (merge-by-ID, to tolerate partial updates).
+                    if self._realtimeInitialData is None:
+                        self._realtimeInitialData = {}
+                    if "PAYLOAD" not in self._realtimeInitialData:
+                        self._realtimeInitialData["PAYLOAD"] = {}
+                    try:
+                        prev = self._realtimeInitialData["PAYLOAD"].get("STATUS_OUTPUTS") or []
+                        if isinstance(prev, dict):
+                            prev = [prev]
+                        prev_by_id = {}
+                        if isinstance(prev, list):
+                            for it in prev:
+                                if not isinstance(it, dict):
+                                    continue
+                                prev_by_id[str(it.get("ID"))] = it
+                        for it in updates:
+                            if not isinstance(it, dict):
+                                continue
+                            oid = str(it.get("ID"))
+                            if oid in prev_by_id and isinstance(prev_by_id.get(oid), dict):
+                                prev_by_id[oid] = {**prev_by_id[oid], **it}
+                            else:
+                                prev_by_id[oid] = it
+                        self._realtimeInitialData["PAYLOAD"]["STATUS_OUTPUTS"] = list(
+                            prev_by_id.values()
+                        )
+                    except Exception:
+                        self._realtimeInitialData["PAYLOAD"]["STATUS_OUTPUTS"] = updates
 
                 # Notify listeners
-                await self._notify_listeners("lights", data["STATUS_OUTPUTS"])
-                await self._notify_listeners("switches", data["STATUS_OUTPUTS"])
-                await self._notify_listeners("covers", data["STATUS_OUTPUTS"])
+                await self._notify_listeners("lights", updates)
+                await self._notify_listeners("switches", updates)
+                await self._notify_listeners("covers", updates)
             if "STATUS_BUS_HA_SENSORS" in data:
                 domus_updates = data["STATUS_BUS_HA_SENSORS"]
                 self._logger.debug(
@@ -993,14 +1161,67 @@ class WebSocketManager:
                 )
                 await self._notify_listeners("partitions", data["PARTITIONS"])
             if "STATUS_ZONES" in data:
-                self._logger.debug("Realtime zones update: %s", data["STATUS_ZONES"])
-                await self._notify_listeners("zones", data["STATUS_ZONES"])
+                zones_updates = data["STATUS_ZONES"]
+                self._logger.debug("Realtime zones update: %s", zones_updates)
+                if self._output_debug_verbose:
+                    try:
+                        if isinstance(zones_updates, list):
+                            sample = []
+                            for it in zones_updates[:12]:
+                                if not isinstance(it, dict):
+                                    continue
+                                row = {"ID": it.get("ID")}
+                                for k in ("STA", "A", "BYP", "T", "VAS", "FM", "CMD", "AN"):
+                                    if k in it:
+                                        row[k] = it.get(k)
+                                sample.append(row)
+                            self._logger.info(
+                                "WS1 REALTIME STATUS_ZONES n=%s sample=%s",
+                                len(zones_updates),
+                                sample,
+                            )
+                        else:
+                            self._logger.info(
+                                "WS1 REALTIME STATUS_ZONES type=%s",
+                                type(zones_updates).__name__,
+                            )
+                    except Exception:
+                        pass
+                await self._notify_listeners("zones", zones_updates)
             if "STATUS_SYSTEM" in data:
                 systems = data["STATUS_SYSTEM"]
                 self._logger.debug(
                     "Updating state for systems: %s",
                     systems,
                 )
+                # Help diagnose panels that don't seem to update systems in UI/MQTT.
+                if self._output_debug_verbose:
+                    try:
+                        if isinstance(systems, list):
+                            sample = []
+                            for it in systems[:6]:
+                                if not isinstance(it, dict):
+                                    continue
+                                row = {"ID": it.get("ID")}
+                                arm = it.get("ARM")
+                                if isinstance(arm, dict):
+                                    row["ARM"] = {"S": arm.get("S"), "D": arm.get("D")}
+                                temp = it.get("TEMP")
+                                if isinstance(temp, dict):
+                                    row["TEMP"] = {"IN": temp.get("IN"), "OUT": temp.get("OUT")}
+                                sample.append(row)
+                            self._logger.info(
+                                "WS1 REALTIME STATUS_SYSTEM n=%s sample=%s",
+                                len(systems),
+                                sample,
+                            )
+                        else:
+                            self._logger.info(
+                                "WS1 REALTIME STATUS_SYSTEM type=%s",
+                                type(systems).__name__,
+                            )
+                    except Exception:
+                        pass
 
                 # Update the initial realtime SYSTEM data so getSystem() sees fresh values
                 if self._realtimeInitialData is None:
@@ -1027,114 +1248,22 @@ class WebSocketManager:
             if "STATUS_TEMPERATURES" in data:
                 temps = data["STATUS_TEMPERATURES"]
                 self._logger.debug("Updating state for temperatures: %s", temps)
-                domus_temp_updates = []
-                if isinstance(temps, list):
-                    known = self._known_thermostat_ids()
-                    sensor_to_th = self._sensor_to_thermostat_map()
-                    filtered_by_id = {}
-                    for x in temps:
-                        if not isinstance(x, dict):
-                            continue
-                        xid = self._norm_id(x.get("ID"))
-                        tid = sensor_to_th.get(xid)
-                        if known and ((xid in known) or (tid in known)):
-                            out = dict(x)
-                            out["ID"] = tid if tid in known else xid
-                            tcur = out.get("TEMP")
-                            if tcur in (None, ""):
-                                tcur = out.get("TEM")
-                            if tcur not in (None, ""):
-                                out["TEMP"] = tcur
-                            out_id = self._norm_id(out.get("ID"))
-                            if out_id is not None:
-                                filtered_by_id[out_id] = out
-                            continue
-                        # DOMUS temperatures are usually exposed as TEM (sometimes TEMP).
-                        # Keep thermostat channel strict to CFG_THERMOSTATS IDs only.
-                        tval = x.get("TEM")
-                        if tval in (None, ""):
-                            tval = x.get("TEMP")
-                        if tval not in (None, "") and xid is not None:
-                            domus_temp_updates.append({"ID": xid, "TEM": tval})
-                    temps = list(filtered_by_id.values())
                 if self._realtimeInitialData is None:
                     self._realtimeInitialData = {}
                 if "PAYLOAD" not in self._realtimeInitialData:
                     self._realtimeInitialData["PAYLOAD"] = {}
                 self._realtimeInitialData["PAYLOAD"]["STATUS_TEMPERATURES"] = temps
                 await self._notify_listeners("thermostats", temps)
-                if domus_temp_updates:
-                    bus = self._realtimeInitialData["PAYLOAD"].get("STATUS_BUS_HA_SENSORS")
-                    if not isinstance(bus, list):
-                        bus = []
-                    by_id = {}
-                    for it in bus:
-                        if isinstance(it, dict):
-                            iid = self._norm_id(it.get("ID"))
-                            if iid is not None:
-                                by_id[iid] = dict(it)
-                    for up in domus_temp_updates:
-                        iid = self._norm_id(up.get("ID"))
-                        if iid is None:
-                            continue
-                        cur = by_id.get(iid, {"ID": iid})
-                        cur.update(up)
-                        by_id[iid] = cur
-                    self._realtimeInitialData["PAYLOAD"]["STATUS_BUS_HA_SENSORS"] = list(by_id.values())
-                    await self._notify_listeners("domus", domus_temp_updates)
 
             if "STATUS_HUMIDITY" in data:
                 hum = data["STATUS_HUMIDITY"]
                 self._logger.debug("Updating state for humidity: %s", hum)
-                domus_hum_updates = []
-                if isinstance(hum, list):
-                    known = self._known_thermostat_ids()
-                    sensor_to_th = self._sensor_to_thermostat_map()
-                    filtered_by_id = {}
-                    for x in hum:
-                        if not isinstance(x, dict):
-                            continue
-                        xid = self._norm_id(x.get("ID"))
-                        tid = sensor_to_th.get(xid)
-                        if known and ((xid in known) or (tid in known)):
-                            out = dict(x)
-                            out["ID"] = tid if tid in known else xid
-                            hcur = out.get("HUM")
-                            if hcur not in (None, ""):
-                                out["HUM"] = hcur
-                            out_id = self._norm_id(out.get("ID"))
-                            if out_id is not None:
-                                filtered_by_id[out_id] = out
-                            continue
-                        hval = x.get("HUM")
-                        if hval not in (None, "") and xid is not None:
-                            domus_hum_updates.append({"ID": xid, "HUM": hval})
-                    hum = list(filtered_by_id.values())
                 if self._realtimeInitialData is None:
                     self._realtimeInitialData = {}
                 if "PAYLOAD" not in self._realtimeInitialData:
                     self._realtimeInitialData["PAYLOAD"] = {}
                 self._realtimeInitialData["PAYLOAD"]["STATUS_HUMIDITY"] = hum
                 await self._notify_listeners("thermostats", hum)
-                if domus_hum_updates:
-                    bus = self._realtimeInitialData["PAYLOAD"].get("STATUS_BUS_HA_SENSORS")
-                    if not isinstance(bus, list):
-                        bus = []
-                    by_id = {}
-                    for it in bus:
-                        if isinstance(it, dict):
-                            iid = self._norm_id(it.get("ID"))
-                            if iid is not None:
-                                by_id[iid] = dict(it)
-                    for up in domus_hum_updates:
-                        iid = self._norm_id(up.get("ID"))
-                        if iid is None:
-                            continue
-                        cur = by_id.get(iid, {"ID": iid})
-                        cur.update(up)
-                        by_id[iid] = cur
-                    self._realtimeInitialData["PAYLOAD"]["STATUS_BUS_HA_SENSORS"] = list(by_id.values())
-                    await self._notify_listeners("domus", domus_hum_updates)
 
     """
     Registers a listener for a specific entity type.
@@ -2053,47 +2182,15 @@ class WebSocketManager:
         if not isinstance(hums, list):
             hums = []
 
-        ids = set(self._extra_thermostat_names.keys())
-        if not ids:
-            # Strict mode: thermostats are only those explicitly enabled from DOMUS UI.
-            return []
-        sensor_to_th = self._sensor_to_thermostat_map()
+        temp_by_id = {str(x.get("ID")): x for x in temps if isinstance(x, dict) and x.get("ID") is not None}
+        hum_by_id = {str(x.get("ID")): x for x in hums if isinstance(x, dict) and x.get("ID") is not None}
 
-        temp_by_id = {}
-        for x in temps:
-            if not isinstance(x, dict):
-                continue
-            nid = self._norm_id(x.get("ID"))
-            if nid is None:
-                continue
-            tid = sensor_to_th.get(nid)
-            if tid not in ids:
-                tid = nid if nid in ids else None
-            if tid is None:
-                continue
-            cur = dict(x)
-            cur["ID"] = tid
-            tval = cur.get("TEMP")
-            if tval in (None, ""):
-                tval = cur.get("TEM")
-            if tval not in (None, ""):
-                cur["TEMP"] = tval
-            temp_by_id[tid] = cur
-        hum_by_id = {}
-        for x in hums:
-            if not isinstance(x, dict):
-                continue
-            nid = self._norm_id(x.get("ID"))
-            if nid is None:
-                continue
-            tid = sensor_to_th.get(nid)
-            if tid not in ids:
-                tid = nid if nid in ids else None
-            if tid is None:
-                continue
-            cur = dict(x)
-            cur["ID"] = tid
-            hum_by_id[tid] = cur
+        ids = set()
+        for x in cfg_list:
+            if isinstance(x, dict) and x.get("ID") is not None:
+                ids.add(str(x.get("ID")))
+        ids.update(temp_by_id.keys())
+        ids.update(hum_by_id.keys())
 
         out = []
         for tid in sorted(ids, key=lambda s: int(s) if str(s).isdigit() else str(s)):
@@ -2107,8 +2204,6 @@ class WebSocketManager:
                 merged.update(rt)
             if isinstance(hum, dict):
                 merged.update(hum)
-            if "DES" not in merged and tid in self._extra_thermostat_names:
-                merged["DES"] = self._extra_thermostat_names.get(tid)
             if "DES" not in merged and tid in name_by_id:
                 merged["DES"] = name_by_id.get(tid)
             out.append(merged)

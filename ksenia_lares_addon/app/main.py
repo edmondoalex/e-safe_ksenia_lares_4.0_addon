@@ -27,7 +27,12 @@ def _load_addon_options():
     try:
         return json.loads(options_path.read_text(encoding="utf-8"))
     except Exception as exc:
-        print(f"[WARN] Impossibile leggere {options_path}: {exc}")
+        try:
+            logging.getLogger("ksenia_lares_addon").warning(
+                "Impossibile leggere %s: %s", options_path, exc
+            )
+        except Exception:
+            print(f"[WARN] Impossibile leggere {options_path}: {exc}")
         return {}
 
 
@@ -65,38 +70,15 @@ def _create_mqtt_client():
         return mqtt.Client()
 
 
-def _load_domus_thermostat_overrides_from_ui_tags(path="/data/ui_tags.json"):
-    out = {}
-    try:
-        p = Path(path)
-        if not p.exists():
-            return out
-        raw = json.loads(p.read_text(encoding="utf-8")) or {}
-    except Exception:
-        return out
-    if not isinstance(raw, dict):
-        return out
-    dom = raw.get("domus_thermostats")
-    if not isinstance(dom, dict):
-        return out
-    for k, v in dom.items():
-        try:
-            sid = str(int(str(k).strip()))
-        except Exception:
-            continue
-        if isinstance(v, dict):
-            enabled = str(v.get("enabled", "true")).strip().lower() in ("1", "true", "t", "yes", "y", "on")
-            if not enabled:
-                continue
-            name = str(v.get("name") or "").strip() or f"Thermostat {sid}"
-        else:
-            name = str(v or "").strip() or f"Thermostat {sid}"
-        out[sid] = name
-    return out
-
-
 def main():
-    print("[INFO] Avvio add-on Ksenia Lares")
+    # Include timestamps in logs so troubleshooting can be done on a clear timeline.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    logger = logging.getLogger("ksenia_lares_addon")
+    logger.info("Avvio add-on Ksenia Lares")
 
     options = _load_addon_options()
 
@@ -148,19 +130,16 @@ def main():
     )
 
     if not ksenia_host or not ksenia_port or not ksenia_pin:
-        print("[FATAL] Config Ksenia incompleta: serve ksenia_host, ksenia_port, ksenia_pin.")
+        logger.critical(
+            "Config Ksenia incompleta: serve ksenia_host, ksenia_port, ksenia_pin."
+        )
         raise SystemExit(2)
 
-    logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
-    logger = logging.getLogger("ksenia_lares_addon")
     if mqtt_debug_verbose:
         logger.setLevel(logging.DEBUG)
         logger.info("MQTT log verboso attivato (mqtt_debug_verbose=true).")
     if output_debug_verbose:
         logger.info("Debug output verboso attivato (output_debug_verbose=true).")
-    domus_thermostat_overrides = _load_domus_thermostat_overrides_from_ui_tags()
-    if domus_thermostat_overrides:
-        logger.info("Domus thermostat overrides da UI: %s", sorted(domus_thermostat_overrides.keys(), key=int))
 
     state = LaresState()
     start_debug_server(state, port=debug_ui_port)
@@ -195,6 +174,7 @@ def main():
             logger.info(f"[MQTT] connesso rc={reason_code} flags={flags}")
         try:
             client.subscribe(f"{mqtt_prefix}/cmd/output/#")
+            client.subscribe(f"{mqtt_prefix}/cmd/cover/#")
             client.subscribe(f"{mqtt_prefix}/cmd/scenario/#")
             client.subscribe(f"{mqtt_prefix}/cmd/partition/#")
             client.subscribe(f"{mqtt_prefix}/cmd/zone_bypass/#")
@@ -210,7 +190,19 @@ def main():
         except Exception:
             pass
 
-    def _on_disconnect(client, userdata, reason_code=0, properties=None):
+    def _on_disconnect(client, userdata, *args, **kwargs):
+        # paho-mqtt callback signature differs between v1 and v2:
+        # - v1: on_disconnect(client, userdata, rc)
+        # - v2: on_disconnect(client, userdata, disconnect_flags, reason_code, properties)
+        reason_code = kwargs.get("reason_code", None)
+        if reason_code is None:
+            try:
+                if len(args) == 1:
+                    reason_code = args[0]
+                elif len(args) >= 2:
+                    reason_code = args[1]
+            except Exception:
+                reason_code = None
         if mqtt_debug_verbose:
             logger.info(f"[MQTT] disconnesso rc={reason_code}")
 
@@ -363,6 +355,89 @@ def main():
                         return ok
 
                 asyncio.run_coroutine_threadsafe(_coro_out(), loop)
+                return
+
+            if domain == "cover":
+                p_raw = payload_raw.strip()
+                p = p_raw.upper()
+
+                async def _coro_cover():
+                    try:
+                        # Topic format:
+                        # - <prefix>/cmd/cover/<id>              payload: OPEN/CLOSE/STOP or numeric position
+                        # - <prefix>/cmd/cover/<id>/set_position payload: 0-100
+                        if sub_action in ("set", "pos", "position", "set_position"):
+                            try:
+                                pos = int(float(p_raw))
+                            except Exception:
+                                return False
+                            pos = max(0, min(100, pos))
+                            ok = await mgr.setCoverPosition(target_id, pos)
+                            if ok:
+                                patch = {"ID": str(target_id), "POS": str(pos)}
+                                try:
+                                    state.apply_realtime_update("covers", [patch])
+                                    publish("covers", patch)
+                                    publish("outputs", patch)
+                                except Exception:
+                                    pass
+                            return ok
+
+                        if p.isdigit():
+                            try:
+                                pos = int(p)
+                            except Exception:
+                                return False
+                            pos = max(0, min(100, pos))
+                            ok = await mgr.setCoverPosition(target_id, pos)
+                            if ok:
+                                patch = {"ID": str(target_id), "POS": str(pos)}
+                                try:
+                                    state.apply_realtime_update("covers", [patch])
+                                    publish("covers", patch)
+                                    publish("outputs", patch)
+                                except Exception:
+                                    pass
+                            return ok
+
+                        if p in ("OPEN", "UP"):
+                            ok = await mgr.raiseCover(target_id)
+                            if ok:
+                                patch = {"ID": str(target_id), "STA": "UP"}
+                                try:
+                                    state.apply_realtime_update("covers", [patch])
+                                    publish("covers", patch)
+                                    publish("outputs", patch)
+                                except Exception:
+                                    pass
+                            return ok
+                        if p in ("CLOSE", "DOWN"):
+                            ok = await mgr.lowerCover(target_id)
+                            if ok:
+                                patch = {"ID": str(target_id), "STA": "DOWN"}
+                                try:
+                                    state.apply_realtime_update("covers", [patch])
+                                    publish("covers", patch)
+                                    publish("outputs", patch)
+                                except Exception:
+                                    pass
+                            return ok
+                        if p in ("STOP", "HALT"):
+                            ok = await mgr.stopCover(target_id)
+                            if ok:
+                                patch = {"ID": str(target_id), "STA": "STOP"}
+                                try:
+                                    state.apply_realtime_update("covers", [patch])
+                                    publish("covers", patch)
+                                    publish("outputs", patch)
+                                except Exception:
+                                    pass
+                            return ok
+                    except Exception:
+                        return False
+                    return False
+
+                asyncio.run_coroutine_threadsafe(_coro_cover(), loop)
                 return
 
             if domain == "scenario":
@@ -906,9 +981,17 @@ def main():
     mqttc.loop_start()
 
     def publish(entity_type: str, item: dict):
-        entity_id = item.get("ID")
-        if entity_id is None:
+        entity_id_raw = item.get("ID")
+        if entity_id_raw is None:
             return
+        # Normalize IDs so MQTT topics stay stable (e.g. avoid "033" vs "33").
+        try:
+            entity_id = str(int(str(entity_id_raw).strip()))
+        except Exception:
+            entity_id = str(entity_id_raw).strip()
+        if not entity_id:
+            return
+
         topic = f"{mqtt_prefix}/{entity_type}/{entity_id}"
         retain = entity_type not in ("logs",)
         payload = item
@@ -924,6 +1007,21 @@ def main():
                 payload = dict(merged)
                 if "ID" not in payload:
                     payload["ID"] = entity_id
+                else:
+                    # Keep ID consistent with topic/discovery.
+                    try:
+                        payload["ID"] = str(int(str(payload.get("ID")).strip()))
+                    except Exception:
+                        payload["ID"] = entity_id
+                # Convenience: expose realtime STA at root for outputs so HA templates stay simple/robust.
+                try:
+                    if str(state_entity_type).lower() == "outputs":
+                        if "STA" not in payload:
+                            rt = payload.get("realtime") if isinstance(payload.get("realtime"), dict) else {}
+                            if isinstance(rt, dict) and rt.get("STA") is not None:
+                                payload["STA"] = rt.get("STA")
+                except Exception:
+                    pass
         except Exception:
             payload = item
 
@@ -936,47 +1034,6 @@ def main():
                 sta = str(payload.get("STA") or "").upper()
                 _log_mqtt("publish", f"{DISC_PREFIX}/binary_sensor/{mqtt_prefix_slug}_zone_{entity_id}/state", sta, True)
                 mqttc.publish(f"{DISC_PREFIX}/binary_sensor/{mqtt_prefix_slug}_zone_{entity_id}/state", sta, retain=True)
-            elif et == "domus":
-                dom = payload.get("DOMUS") if isinstance(payload.get("DOMUS"), dict) else {}
-                tval = dom.get("TEM")
-                if tval in (None, ""):
-                    tval = dom.get("TEMP")
-                if tval in (None, ""):
-                    tval = payload.get("TEM")
-                if tval in (None, ""):
-                    tval = payload.get("TEMP")
-                hval = dom.get("HUM")
-                if hval in (None, ""):
-                    hval = payload.get("HUM")
-                lval = dom.get("LHT")
-                if lval in (None, ""):
-                    lval = payload.get("LHT")
-                # Normalize numeric strings for HA sensors (e.g. "10,6" -> "10.6").
-                try:
-                    if tval not in (None, ""):
-                        tval = str(tval).strip().replace(",", ".")
-                except Exception:
-                    pass
-                try:
-                    if hval not in (None, ""):
-                        hval = str(hval).strip().replace(",", ".")
-                except Exception:
-                    pass
-                try:
-                    if lval not in (None, ""):
-                        lval = str(lval).strip().replace(",", ".")
-                except Exception:
-                    pass
-                for suffix, val in (
-                    ("temperature", tval),
-                    ("humidity", hval),
-                    ("illuminance", lval),
-                ):
-                    if val in (None, ""):
-                        continue
-                    tpc = f"{mqtt_prefix}/domus/{entity_id}/{suffix}"
-                    _log_mqtt("publish", tpc, val, True)
-                    mqttc.publish(tpc, str(val), retain=True)
             elif et == "partitions":
                 arm_raw = payload.get("ARM")
                 if isinstance(arm_raw, dict):
@@ -1111,6 +1168,386 @@ def main():
         except Exception:
             pass
 
+    def _partition_arm_state(part_payload: dict) -> str:
+        if not isinstance(part_payload, dict):
+            return ""
+        arm_raw = part_payload.get("ARM")
+        if isinstance(arm_raw, dict):
+            return str(arm_raw.get("S") or arm_raw.get("s") or arm_raw.get("CODE") or "").strip().upper()
+        return str(arm_raw or "").strip().upper()
+
+    def _partition_is_disarmed(part_payload: dict) -> bool:
+        s = _partition_arm_state(part_payload)
+        # Some panels use codes like DA/DT/etc for armed/transition states; only treat plain 'D'
+        # (and explicit strings) as disarmed for clearing derived sensors.
+        return (s == "") or (s == "D") or (s in ("DISARM", "DISINSERITO"))
+
+    def _partition_ids_from_state() -> list[int]:
+        try:
+            snap = state.snapshot()
+            entities = snap.get("entities") or []
+        except Exception:
+            entities = []
+        out: list[int] = []
+        if not isinstance(entities, list):
+            return out
+        for e in entities:
+            if not isinstance(e, dict):
+                continue
+            if str(e.get("type") or "").lower() != "partitions":
+                continue
+            try:
+                out.append(int(str(e.get("id")).strip()))
+            except Exception:
+                continue
+        return sorted(set([x for x in out if x > 0]))
+
+    def _decode_zone_prt_partition_ids(prt_value, partition_ids: list[int]) -> list[int]:
+        """
+        Decode a zone->partition association from the static PRT field.
+
+        Panels/UI vary:
+        - bitmask where bit position == partition ID (1-based)
+        - bitmask where bit position maps to the *nth enabled partition* (compact)
+        - string lists like "1,2"
+        - hex strings without 0x ("40")
+        """
+        if prt_value is None:
+            return []
+        s = str(prt_value).strip()
+        if not s:
+            return []
+        up = s.upper()
+        if up in ("ALL", "ALLALL"):
+            return list(partition_ids)
+
+        # explicit lists like "1,2"
+        if "," in s or " " in s:
+            out = []
+            for tok in re.split(r"[,\s]+", s):
+                tok = str(tok or "").strip()
+                if not tok:
+                    continue
+                try:
+                    pid = int(tok)
+                except Exception:
+                    continue
+                if pid > 0:
+                    out.append(pid)
+            return sorted(set(out))
+
+        # numeric/hex mask candidates
+        candidates: list[int] = []
+        try:
+            candidates.append(int(float(s)))
+        except Exception:
+            pass
+        is_hexish = all(c in "0123456789abcdefABCDEF" for c in s) and len(s) >= 2
+        try:
+            if up.startswith("0X"):
+                candidates.append(int(s, 16))
+            elif is_hexish:
+                candidates.append(int(s, 16))
+        except Exception:
+            pass
+        if not candidates:
+            return []
+
+        # Decode mask by two strategies and pick best:
+        # - direct: bit i -> partition ID i
+        # - compact: bit i -> partition_ids[i-1]
+        max_bit_direct = max(partition_ids) if partition_ids else 32
+        max_bit_direct = max(max_bit_direct, 32)
+        max_bit_compact = max(len(partition_ids), 1)
+        max_bit_compact = max(max_bit_compact, 32)
+
+        def _decode_bits(mask_int: int, max_bit: int) -> list[int]:
+            out = []
+            for i in range(1, max_bit + 1):
+                if mask_int & (1 << (i - 1)):
+                    out.append(i)
+            return out
+
+        best_ids: list[int] = []
+        best_score = None
+        part_set = set(partition_ids)
+        for m in candidates:
+            if m < 0:
+                continue
+            direct = _decode_bits(m, max_bit_direct)
+            compact_bits = _decode_bits(m, max_bit_compact)
+            compact = []
+            for idx in compact_bits:
+                if 1 <= idx <= len(partition_ids):
+                    compact.append(partition_ids[idx - 1])
+
+            for mode, ids in (("direct", direct), ("compact", compact)):
+                if not ids:
+                    continue
+                # score: prefer ids that exist as partitions, and fewer ids overall.
+                nonexist = sum(1 for x in ids if x not in part_set) if part_set else 0
+                exist = sum(1 for x in ids if x in part_set) if part_set else len(ids)
+                score = (nonexist, -exist, len(ids), 0 if mode == "compact" else 1)
+                if best_score is None or score < best_score:
+                    best_score = score
+                    best_ids = ids
+
+        return sorted(set([x for x in best_ids if x > 0]))
+
+    def _zone_is_alarm(zone_payload: dict) -> bool:
+        if not isinstance(zone_payload, dict):
+            return False
+        rt = zone_payload.get("realtime") if isinstance(zone_payload.get("realtime"), dict) else {}
+
+        def _n(v):
+            return str(v if v is not None else "").strip().upper()
+
+        sta = _n(rt.get("STA"))
+        a = _n(rt.get("A"))
+        if sta in ("A", "AL", "ALARM", "TRIG", "TRIGGERED"):
+            return True
+        if a not in ("", "N", "0", "F", "OFF", "FALSE", "NO"):
+            return True
+        return False
+
+    def _parse_zone_id(value) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return value if value > 0 else None
+        if isinstance(value, dict):
+            cand = value.get("ID") or value.get("id") or value.get("ZONE") or value.get("zone")
+            return _parse_zone_id(cand)
+        s = str(value).strip()
+        if not s:
+            return None
+        # Accept "33", "Z33", "ZONE_33", etc.
+        m = re.search(r"(\d+)", s)
+        if not m:
+            return None
+        try:
+            n = int(m.group(1))
+        except Exception:
+            return None
+        return n if n > 0 else None
+
+    def _system_alarm_zone_ids() -> set[int]:
+        alarm_ids: set[int] = set()
+        try:
+            snap = state.snapshot()
+            entities = snap.get("entities") or []
+        except Exception:
+            entities = []
+        if not isinstance(entities, list):
+            return alarm_ids
+        for e in entities:
+            if not isinstance(e, dict):
+                continue
+            if str(e.get("type") or "").lower() != "systems":
+                continue
+            sid = str(e.get("id") or "").strip()
+            try:
+                sys_merged = state.get_merged("systems", sid) if sid else e
+            except Exception:
+                sys_merged = e
+            if not isinstance(sys_merged, dict):
+                continue
+            rt = sys_merged.get("realtime") if isinstance(sys_merged.get("realtime"), dict) else {}
+            # Prefer current alarms list; if empty, try ALARM_MEM (some panels only expose memory).
+            alarm_list = rt.get("ALARM")
+            if not isinstance(alarm_list, list) or not alarm_list:
+                alarm_list = rt.get("ALARM_MEM")
+            if not isinstance(alarm_list, list):
+                continue
+            for it in alarm_list:
+                zid = _parse_zone_id(it)
+                if zid:
+                    alarm_ids.add(int(zid))
+        return alarm_ids
+
+    def _zones_alarm_for_partition(pid: int) -> list[tuple[str, str]]:
+        if pid <= 0:
+            return []
+        out: list[tuple[str, str]] = []
+        alarm_ids = _system_alarm_zone_ids()
+        partition_ids = _partition_ids_from_state()
+        try:
+            snap = state.snapshot()
+            entities = snap.get("entities") or []
+        except Exception:
+            entities = []
+        if not isinstance(entities, list):
+            return []
+        for e in entities:
+            if not isinstance(e, dict):
+                continue
+            if str(e.get("type") or "").lower() != "zones":
+                continue
+            zid = str(e.get("id") or "").strip()
+            if not zid:
+                continue
+            zid_int = None
+            try:
+                zid_int = int(str(zid).strip())
+            except Exception:
+                zid_int = _parse_zone_id(zid)
+            if alarm_ids and (not zid_int or int(zid_int) not in alarm_ids):
+                continue
+            try:
+                merged = state.get_merged("zones", zid)
+            except Exception:
+                merged = e
+            if not isinstance(merged, dict):
+                continue
+            st = merged.get("static") if isinstance(merged.get("static"), dict) else {}
+            pids = _decode_zone_prt_partition_ids(st.get("PRT"), partition_ids)
+            if pid not in pids:
+                continue
+            # If systems provides ALARM list, trust it; otherwise fallback to per-zone heuristic.
+            if (not alarm_ids) and (not _zone_is_alarm(merged)):
+                continue
+            name = str(merged.get("name") or "").strip() or f"Zona {zid}"
+            out.append((zid, name))
+        return out
+
+    def _format_alarm_zones_state(items: list[tuple[str, str]]) -> str:
+        if not items:
+            return "Nessuno"
+        parts = [str(nm).strip() for _zid, nm in items if str(nm or "").strip()]
+        s = ", ".join(parts)
+        if not s:
+            return "Nessuno"
+        if len(s) <= 240:
+            return s
+        return s[:235].rstrip() + "…"
+
+    # Active alarm zone derived from LOGS (ZALARM), per partition.
+    # key: partition_id -> display_name (last alarmed zone)
+    _alarm_zone_last: dict[int, str] = {}
+
+    def _norm_text(s: str) -> str:
+        return re.sub(r"\s+", " ", str(s or "").strip()).casefold()
+
+    def _find_zone_by_name(zone_name: str) -> tuple[str | None, str | None]:
+        """
+        Resolve a log zone description (I1) to (zone_id, display_name) by matching zone static.DES/name.
+        """
+        target = _norm_text(zone_name)
+        if not target:
+            return None, None
+        try:
+            snap = state.snapshot()
+            entities = snap.get("entities") or []
+        except Exception:
+            entities = []
+        if not isinstance(entities, list):
+            return None, None
+        for e in entities:
+            if not isinstance(e, dict):
+                continue
+            if str(e.get("type") or "").lower() != "zones":
+                continue
+            zid = str(e.get("id") or "").strip()
+            if not zid:
+                continue
+            st = e.get("static") if isinstance(e.get("static"), dict) else {}
+            cand = st.get("DES") or e.get("name") or ""
+            if _norm_text(cand) == target:
+                return zid, (str(cand).strip() or f"Zona {zid}")
+        return None, None
+
+    def _armed_partition_ids() -> list[int]:
+        try:
+            snap = state.snapshot()
+            entities = snap.get("entities") or []
+        except Exception:
+            entities = []
+        out: list[int] = []
+        if not isinstance(entities, list):
+            return out
+        for e in entities:
+            if not isinstance(e, dict):
+                continue
+            if str(e.get("type") or "").lower() != "partitions":
+                continue
+            pid_s = str(e.get("id") or "").strip()
+            try:
+                pid = int(pid_s)
+            except Exception:
+                continue
+            try:
+                merged = state.get_merged("partitions", pid_s)
+            except Exception:
+                merged = e
+            if not isinstance(merged, dict):
+                continue
+            if not _partition_is_disarmed(merged):
+                out.append(pid)
+        return sorted(set([p for p in out if p > 0]))
+
+    def _set_alarm_zone_for_partitions(zone_name: str, pids: list[int]):
+        disp = str(zone_name).strip()
+        if not disp:
+            return
+        for pid in pids:
+            if pid <= 0:
+                continue
+            _alarm_zone_last[int(pid)] = disp
+
+    def _active_alarm_zone_for_partition(pid: int) -> str:
+        return str(_alarm_zone_last.get(int(pid)) or "").strip()
+
+    def publish_alarm_zones_for_partition(pid: int):
+        try:
+            pid_int = int(pid)
+        except Exception:
+            return
+        if pid_int <= 0:
+            return
+        try:
+            part = state.get_merged("partitions", str(pid_int))
+        except Exception:
+            part = None
+        if isinstance(part, dict) and _partition_is_disarmed(part):
+            state_str = "Nessuno"
+        else:
+            active = _active_alarm_zone_for_partition(pid_int)
+            if active:
+                state_str = active
+            else:
+                # Fallback to computed realtime heuristics: pick the first matching zone name.
+                computed = _zones_alarm_for_partition(pid_int)
+                state_str = str(computed[0][1]).strip() if computed else "Nessuno"
+        topic = f"{mqtt_prefix}/partitions/{pid_int}/alarm_zones"
+        if mqtt_debug_verbose:
+            try:
+                logger.info("alarm_zones p%s => %s", pid_int, state_str)
+            except Exception:
+                pass
+        _log_mqtt("publish", topic, state_str, True)
+        mqttc.publish(topic, state_str, retain=True)
+
+    def publish_alarm_zones_for_all_partitions():
+        try:
+            snap = state.snapshot()
+            entities = snap.get("entities") or []
+        except Exception:
+            entities = []
+        if not isinstance(entities, list):
+            return
+        pids: list[int] = []
+        for e in entities:
+            if not isinstance(e, dict):
+                continue
+            if str(e.get("type") or "").lower() != "partitions":
+                continue
+            try:
+                pids.append(int(str(e.get("id")).strip()))
+            except Exception:
+                continue
+        for pid in sorted(set([p for p in pids if p > 0])):
+            publish_alarm_zones_for_partition(pid)
+
     # ------------------------------------------------------------------
     # MQTT Discovery (read-only: espone stato via Home Assistant MQTT)
     # ------------------------------------------------------------------
@@ -1151,38 +1588,15 @@ def main():
             logger.error(f"Discovery publish failed for {domain} {object_id}: {exc}")
             return False
 
-    def _clear_thermostat_discovery(ids) -> int:
-        cleared = 0
-        if not isinstance(ids, (list, tuple, set)):
-            return cleared
-        prefixes = {str(mqtt_prefix).strip(), str(mqtt_prefix_slug).strip()}
-        for raw_id in ids:
-            try:
-                tid = str(int(raw_id))
-            except Exception:
-                continue
-            for pf in prefixes:
-                if not pf:
-                    continue
-                obj_id = f"{pf}_therm_{tid}"
-                topic = f"{DISC_PREFIX}/climate/{obj_id}/config"
-                try:
-                    _log_mqtt("discovery", topic, "", True)
-                    mqttc.publish(topic, "", retain=True)
-                    cleared += 1
-                except Exception:
-                    pass
-        return cleared
-
     def publish_discovery(snapshot: dict):
         entities = snapshot.get("entities") or []
         published = 0
         per_type = {}
         disc_devices = {
             "zones": _disc_device(snapshot, "zones", "Sensori"),
+            "domus": _disc_device(snapshot, "domus", "Domus"),
             "partitions": _disc_device(snapshot, "partitions", "Partizioni"),
             "outputs": _disc_device(snapshot, "outputs", "Uscite"),
-            "domus": _disc_device(snapshot, "domus", "Domus"),
             "scenarios": _disc_device(snapshot, "scenarios", "Scenari"),
             "thermostats": _disc_device(snapshot, "thermostats", "Termostati"),
             "schedulers": _disc_device(snapshot, "schedulers", "Programmatori"),
@@ -1318,6 +1732,101 @@ def main():
             if _disc_publish("switch", obj_id3, payload3):
                 published += 1
 
+        # Domus -> sensors (temperature/humidity/illuminance + threshold flags)
+        for e in entities:
+            et = str(e.get("type") or "").lower()
+            if et != "domus":
+                continue
+            _inc(et)
+            try:
+                eid = str(int(e.get("id")))
+            except Exception:
+                continue
+            st = e.get("static") if isinstance(e.get("static"), dict) else {}
+            name = st.get("DES") or e.get("name") or st.get("INFO") or f"Domus {eid}"
+            domus_json_topic = f"{mqtt_prefix}/domus/{eid}"
+
+            # Temperature
+            obj_id = f"{mqtt_prefix_slug}_domus_{eid}_temperature"
+            payload = {
+                "name": f"{name} Temperatura",
+                "unique_id": obj_id,
+                "state_topic": domus_json_topic,
+                "value_template": "{{ (value_json.DOMUS.TEM | default(value_json.TEM) | default('') | string | replace('+','') | replace(',','.') ) | float(default=none) }}",
+                "unit_of_measurement": "°C",
+                "device_class": "temperature",
+                "state_class": "measurement",
+                "availability_topic": f"{mqtt_prefix}/status",
+                "payload_available": "online",
+                "payload_not_available": "offline",
+                "default_entity_id": f"sensor.{obj_id}",
+            }
+            payload = _apply_device(payload, "domus")
+            if _disc_publish("sensor", obj_id, payload):
+                published += 1
+
+            # Humidity
+            obj_id = f"{mqtt_prefix_slug}_domus_{eid}_humidity"
+            payload = {
+                "name": f"{name} Umidità",
+                "unique_id": obj_id,
+                "state_topic": domus_json_topic,
+                "value_template": "{{ (value_json.DOMUS.HUM | default(value_json.HUM) | default('') | string | replace(',','.') ) | float(default=none) }}",
+                "unit_of_measurement": "%",
+                "device_class": "humidity",
+                "state_class": "measurement",
+                "availability_topic": f"{mqtt_prefix}/status",
+                "payload_available": "online",
+                "payload_not_available": "offline",
+                "default_entity_id": f"sensor.{obj_id}",
+            }
+            payload = _apply_device(payload, "domus")
+            if _disc_publish("sensor", obj_id, payload):
+                published += 1
+
+            # Illuminance (lux)
+            obj_id = f"{mqtt_prefix_slug}_domus_{eid}_illuminance"
+            payload = {
+                "name": f"{name} Luminosità",
+                "unique_id": obj_id,
+                "state_topic": domus_json_topic,
+                "value_template": "{{ (value_json.DOMUS.LHT | default(value_json.LHT) | default('') | string | replace(',','.') ) | float(default=none) }}",
+                "unit_of_measurement": "lx",
+                "device_class": "illuminance",
+                "state_class": "measurement",
+                "availability_topic": f"{mqtt_prefix}/status",
+                "payload_available": "online",
+                "payload_not_available": "offline",
+                "default_entity_id": f"sensor.{obj_id}",
+            }
+            payload = _apply_device(payload, "domus")
+            if _disc_publish("sensor", obj_id, payload):
+                published += 1
+
+            # Threshold flags
+            for suffix, label, key in (
+                ("threshold_light", "Soglia luce", "TL"),
+                ("threshold_humidity", "Soglia umidità", "TH"),
+            ):
+                obj_id = f"{mqtt_prefix_slug}_domus_{eid}_{suffix}"
+                expr = f"value_json.DOMUS.{key} | default(value_json.{key}) | default('')"
+                payload = {
+                    "name": f"{name} {label}",
+                    "unique_id": obj_id,
+                    "state_topic": domus_json_topic,
+                    "value_template": f"{{{{ 'ON' if (({expr}) | string | upper) == 'T' else 'OFF' }}}}",
+                    "payload_on": "ON",
+                    "payload_off": "OFF",
+                    "device_class": "problem",
+                    "availability_topic": f"{mqtt_prefix}/status",
+                    "payload_available": "online",
+                    "payload_not_available": "offline",
+                    "default_entity_id": f"binary_sensor.{obj_id}",
+                }
+                payload = _apply_device(payload, "domus")
+                if _disc_publish("binary_sensor", obj_id, payload):
+                    published += 1
+
         # Partitions -> alarm_control_panel (r/w)
         for e in entities:
             et = str(e.get("type") or "").lower()
@@ -1352,6 +1861,48 @@ def main():
             if _disc_publish("alarm_control_panel", obj_id, payload):
                 published += 1
 
+            # Partitions -> binary_sensor (armed/disarmed, ignore delay/immediate)
+            try:
+                obj_id2 = f"{mqtt_prefix_slug}_part_{eid}_armed"
+                payload2 = {
+                    "name": f"Stato partizioni {name}",
+                    "unique_id": obj_id2,
+                    "state_topic": f"{mqtt_prefix}/partitions/{eid}",
+                    "value_template": "{% set a = value_json.get('ARM') %}{% if a is mapping %}{% set s = (a.get('S') or '') %}{% else %}{% set s = (a or '') %}{% endif %}{% set s = (s|string)|upper %}{{ 'ON' if s not in ['','D','DISARM','DISINSERITO'] else 'OFF' }}",
+                    "payload_on": "ON",
+                    "payload_off": "OFF",
+                    "device_class": "safety",
+                    "availability_topic": f"{mqtt_prefix}/status",
+                    "payload_available": "online",
+                    "payload_not_available": "offline",
+                    "default_entity_id": f"binary_sensor.{mqtt_prefix_slug}_part_{eid}_armed",
+                }
+                payload2 = _apply_device(payload2, "partitions")
+                if _disc_publish("binary_sensor", obj_id2, payload2):
+                    published += 1
+            except Exception:
+                pass
+
+            # Partition alarm zones summary -> sensor (text)
+            try:
+                part_name = str(name or f"Partizione {eid}").strip() or f"Partizione {eid}"
+                obj_id2 = f"{mqtt_prefix_slug}_part_{eid}_alarm_zones"
+                payload2 = {
+                    "name": f"Stato sensori in allarme ({part_name})",
+                    "unique_id": obj_id2,
+                    "state_topic": f"{mqtt_prefix}/partitions/{eid}/alarm_zones",
+                    "icon": "mdi:alarm-light",
+                    "default_entity_id": f"sensor.{mqtt_prefix_slug}_part_{eid}_sensori_in_allarme",
+                    "availability_topic": f"{mqtt_prefix}/status",
+                    "payload_available": "online",
+                    "payload_not_available": "offline",
+                }
+                payload2 = _apply_device(payload2, "partitions")
+                if _disc_publish("sensor", obj_id2, payload2):
+                    published += 1
+            except Exception:
+                pass
+
         # Outputs -> switch (controllo via MQTT)
         for e in entities:
             et = str(e.get("type") or "").lower()
@@ -1364,8 +1915,40 @@ def main():
                 continue
             st = e.get("static") if isinstance(e.get("static"), dict) else {}
             name = st.get("DES") or e.get("name") or f"Uscita {eid}"
+            cat = str(st.get("CAT") or "").strip().upper()
             obj_id = f"{mqtt_prefix_slug}_out_{eid}"
             state_topic = f"{mqtt_prefix}/outputs/{eid}"
+
+            # Roller blinds / portoni -> cover (instead of switch)
+            if cat == "ROLL":
+                obj_id_cover = f"{obj_id}_cover"
+                payload_cover = {
+                    "name": name,
+                    "unique_id": obj_id_cover,
+                    "command_topic": f"{mqtt_prefix}/cmd/cover/{eid}",
+                    "set_position_topic": f"{mqtt_prefix}/cmd/cover/{eid}/set_position",
+                    "state_topic": state_topic,
+                    "position_topic": state_topic,
+                    "value_template": "{{ ((value_json.get('STA') or value_json.get('realtime', {}).get('STA') or '') | string | upper) }}",
+                    "position_template": "{{ ((value_json.get('POS') or value_json.get('realtime', {}).get('POS') or 0) | int) }}",
+                    "payload_open": "OPEN",
+                    "payload_close": "CLOSE",
+                    "payload_stop": "STOP",
+                    "state_open": "OPEN",
+                    "state_closed": "CLOSE",
+                    "state_opening": "UP",
+                    "state_closing": "DOWN",
+                    "state_stopped": "STOP",
+                    "availability_topic": f"{mqtt_prefix}/status",
+                    "payload_available": "online",
+                    "payload_not_available": "offline",
+                    "default_entity_id": f"cover.{obj_id}",
+                }
+                payload_cover = _apply_device(payload_cover, "outputs")
+                if _disc_publish("cover", obj_id_cover, payload_cover):
+                    published += 1
+                continue
+
             payload = {
                 "name": name,
                 "unique_id": obj_id,
@@ -1375,89 +1958,13 @@ def main():
                 "payload_off": "OFF",
                 "state_on": "ON",
                 "state_off": "OFF",
-                "value_template": "{{ 'ON' if (value_json.STA | default('')).upper() == 'ON' else 'OFF' }}",
+                # Accept both raw payloads ({STA:...}) and merged payloads ({realtime:{STA:...}}) safely.
+                "value_template": "{{ 'ON' if ((value_json.get('STA') or value_json.get('realtime', {}).get('STA') or '') | upper) == 'ON' else 'OFF' }}",
                 "default_entity_id": f"switch.{obj_id}",
             }
             payload = _apply_device(payload, "outputs")
             if _disc_publish("switch", obj_id, payload):
                 published += 1
-
-        # Domus -> sensors (stato + temperatura + umidita + luminosita)
-        for e in entities:
-            et = str(e.get("type") or "").lower()
-            if et != "domus":
-                continue
-            _inc(et)
-            try:
-                eid = str(int(e.get("id")))
-            except Exception:
-                continue
-            st = e.get("static") if isinstance(e.get("static"), dict) else {}
-            name = st.get("DES") or e.get("name") or f"Domus {eid}"
-            obj_id = f"{mqtt_prefix_slug}_domus_{eid}"
-            state_topic = f"{mqtt_prefix}/domus/{eid}"
-            rt = e.get("realtime") if isinstance(e.get("realtime"), dict) else {}
-            dom_rt = rt.get("DOMUS") if isinstance(rt.get("DOMUS"), dict) else {}
-
-            def _present(value):
-                return value not in (None, "", "NA")
-
-            has_temp = _present(dom_rt.get("TEM")) or _present(dom_rt.get("TEMP")) or _present(rt.get("TEM")) or _present(rt.get("TEMP"))
-            has_hum = _present(dom_rt.get("HUM")) or _present(rt.get("HUM"))
-            has_lux = _present(dom_rt.get("LHT")) or _present(rt.get("LHT"))
-            payload = {
-                "name": name,
-                "unique_id": obj_id,
-                "state_topic": state_topic,
-                "value_template": "{{ value_json.get('STA', '') }}",
-                "json_attributes_topic": state_topic,
-                "icon": "mdi:home-assistant",
-                "default_entity_id": f"sensor.{obj_id}",
-            }
-            payload = _apply_device(payload, "domus")
-            if _disc_publish("sensor", obj_id, payload):
-                published += 1
-            if has_temp:
-                obj_temp = f"{mqtt_prefix_slug}_domus_{eid}_temperature"
-                payload_temp = {
-                    "name": f"{name} Temperatura",
-                    "unique_id": obj_temp,
-                    "state_topic": f"{mqtt_prefix}/domus/{eid}/temperature",
-                    "unit_of_measurement": "°C",
-                    "device_class": "temperature",
-                    "default_entity_id": f"sensor.{obj_temp}",
-                }
-                payload_temp = _apply_device(payload_temp, "domus")
-                if _disc_publish("sensor", obj_temp, payload_temp):
-                    published += 1
-
-            if has_hum:
-                obj_hum = f"{mqtt_prefix_slug}_domus_{eid}_humidity"
-                payload_hum = {
-                    "name": f"{name} Umidita",
-                    "unique_id": obj_hum,
-                    "state_topic": f"{mqtt_prefix}/domus/{eid}/humidity",
-                    "unit_of_measurement": "%",
-                    "device_class": "humidity",
-                    "default_entity_id": f"sensor.{obj_hum}",
-                }
-                payload_hum = _apply_device(payload_hum, "domus")
-                if _disc_publish("sensor", obj_hum, payload_hum):
-                    published += 1
-
-            if has_lux:
-                obj_lux = f"{mqtt_prefix_slug}_domus_{eid}_illuminance"
-                payload_lux = {
-                    "name": f"{name} Luminosita",
-                    "unique_id": obj_lux,
-                    "state_topic": f"{mqtt_prefix}/domus/{eid}/illuminance",
-                    "unit_of_measurement": "lx",
-                    "device_class": "illuminance",
-                    "default_entity_id": f"sensor.{obj_lux}",
-                }
-                payload_lux = _apply_device(payload_lux, "domus")
-                if _disc_publish("sensor", obj_lux, payload_lux):
-                    published += 1
 
         # Scenari -> button (solo chiamata)
         for e in entities:
@@ -1652,16 +2159,18 @@ def main():
                 payload = _apply_device(payload, "systems")
                 if _disc_publish("sensor", obj_id, payload):
                     published += 1
-            # Stato testuale scenari allarme (da ARM.D).
-            obj_id = f"{mqtt_prefix_slug}_sys_{sid}_alarm_state"
+
+            # System arm/mode description -> sensor (text)
+            obj_id = f"{mqtt_prefix_slug}_sys_{sid}_arm_desc"
             state_topic = f"{mqtt_prefix}/systems/{sid}"
             payload = {
-                "name": f"Sistema {sid} Stato Scenari allarme",
+                "name": "Stato Scenari allarme",
                 "unique_id": obj_id,
                 "state_topic": state_topic,
-                "value_template": "{{ value_json.get('ARM', {}).get('D', '') }}",
-                "icon": "mdi:shield-alert-outline",
-                "default_entity_id": f"sensor.{obj_id}",
+                # Accept both raw payloads ({ARM:{D:...}}) and merged payloads ({realtime:{ARM:{D:...}}}).
+                "value_template": "{{ (value_json.get('ARM', {}).get('D') or value_json.get('realtime', {}).get('ARM', {}).get('D') or '') }}",
+                "icon": "mdi:shield",
+                "default_entity_id": "sensor.stato_scenari_allarme",
             }
             payload = _apply_device(payload, "systems")
             if _disc_publish("sensor", obj_id, payload):
@@ -1688,6 +2197,23 @@ def main():
             if arm is None:
                 continue
             publish("partitions", {"ID": eid, "ARM": arm})
+
+    def _seed_output_states(snapshot: dict):
+        try:
+            ents = snapshot.get("entities") or []
+        except Exception:
+            ents = []
+        if not isinstance(ents, list):
+            return
+        for e in ents:
+            if str(e.get("type") or "").lower() != "outputs":
+                continue
+            try:
+                eid = str(int(e.get("id")))
+            except Exception:
+                continue
+            # Publish a minimal patch; publish() will merge static+realtime from state.
+            publish("outputs", {"ID": eid})
 
     def _signal_to_percent(value):
         if value in (None, ""):
@@ -2064,6 +2590,101 @@ def main():
             except Exception as exc:
                 logger.error("Icon HTTP notify error: %s", exc)
 
+        # Derived sensors: list of alarm zones per partition.
+        try:
+            if entity_type in ("zones", "partitions", "systems"):
+                updates_list = updates if isinstance(updates, list) else ([updates] if isinstance(updates, dict) else [])
+                if entity_type == "partitions" and updates_list:
+                    pids = []
+                    for it in updates_list:
+                        if not isinstance(it, dict):
+                            continue
+                        try:
+                            pids.append(int(str(it.get("ID")).strip()))
+                        except Exception:
+                            continue
+                    for pid in sorted(set([p for p in pids if p > 0])):
+                        # Clear derived alarms when a partition is disarmed.
+                        try:
+                            merged = state.get_merged("partitions", str(pid))
+                        except Exception:
+                            merged = None
+                        if isinstance(merged, dict) and _partition_is_disarmed(merged):
+                            _alarm_zone_last.pop(int(pid), None)
+                        publish_alarm_zones_for_partition(pid)
+                elif entity_type == "zones" and updates_list:
+                    touched = set()
+                    for it in updates_list:
+                        if not isinstance(it, dict):
+                            continue
+                        zid = it.get("ID")
+                        if zid is None:
+                            continue
+                        try:
+                            zid_s = str(int(str(zid).strip()))
+                        except Exception:
+                            zid_s = str(zid).strip()
+                        if not zid_s:
+                            continue
+                        try:
+                            merged = state.get_merged("zones", zid_s)
+                        except Exception:
+                            merged = None
+                        if not isinstance(merged, dict):
+                            continue
+                        st = merged.get("static") if isinstance(merged.get("static"), dict) else {}
+                        part_ids = _partition_ids_from_state()
+                        pids = _decode_zone_prt_partition_ids(st.get("PRT"), part_ids)
+                        for pid in pids:
+                            touched.add(pid)
+                    if touched:
+                        for pid in sorted(touched):
+                            publish_alarm_zones_for_partition(pid)
+                    else:
+                        publish_alarm_zones_for_all_partitions()
+                else:
+                    publish_alarm_zones_for_all_partitions()
+        except Exception:
+            pass
+
+        # LOGS-derived alarm zones: add on ZALARM events.
+        try:
+            if entity_type == "logs":
+                updates_list = updates if isinstance(updates, list) else ([updates] if isinstance(updates, dict) else [])
+                if updates_list:
+                    for it in updates_list:
+                        if not isinstance(it, dict):
+                            continue
+                        typ = str(it.get("TYPE") or "").strip().upper()
+                        ev = str(it.get("EV") or "").strip().casefold()
+                        if (typ != "ZALARM") and ("allarme zona" not in ev):
+                            continue
+                        zname = str(it.get("I1") or "").strip()
+                        zid, disp = _find_zone_by_name(zname)
+                        # Determine partition(s) for this zone.
+                        pids = []
+                        if zid:
+                            try:
+                                merged = state.get_merged("zones", str(zid))
+                            except Exception:
+                                merged = None
+                            if isinstance(merged, dict):
+                                st = merged.get("static") if isinstance(merged.get("static"), dict) else {}
+                                pids = _decode_zone_prt_partition_ids(st.get("PRT"), _partition_ids_from_state())
+                        if not pids:
+                            armed = _armed_partition_ids()
+                            if len(armed) == 1:
+                                pids = armed
+                            elif armed:
+                                # fallback: associate to all armed partitions to avoid losing info
+                                pids = armed
+                            else:
+                                pids = [1]
+                        _set_alarm_zone_for_partitions(disp or zname, pids)
+                    publish_alarm_zones_for_all_partitions()
+        except Exception:
+            pass
+
     manager = WebSocketManager(
         ip=ksenia_host,
         pin=ksenia_pin,
@@ -2072,7 +2693,6 @@ def main():
         debug_thermostats=debug_thermostats,
         output_debug_verbose=output_debug_verbose,
         reconnect_cooldown_sec=ws_reconnect_cooldown_sec,
-        extra_thermostat_names=domus_thermostat_overrides,
     )
     try:
         manager_ref["manager"] = manager
@@ -2092,12 +2712,6 @@ def main():
         except Exception:
             pass
         try:
-            latest_overrides = _domus_thermostat_overrides_from_data(_load_ui_tags_file())
-            resolved_overrides = _resolve_domus_thermostat_overrides(latest_overrides, read_data)
-            manager.set_extra_thermostat_names(resolved_overrides)
-        except Exception as exc:
-            logger.error("resolve/set domus thermostat overrides failed on reconnect: %s", exc)
-        try:
             state.set_initial_data(read_data, realtime_initial)
         except Exception as exc:
             logger.error(f"Debug initial ingest error (reconnect): {exc}")
@@ -2106,6 +2720,18 @@ def main():
                 icon_notifier.maybe_notify(state.snapshot())
         except Exception as exc:
             logger.error(f"Icon HTTP notify error (reconnect): {exc}")
+
+        # Publish derived partition sensors once at reconnect.
+        try:
+            publish_alarm_zones_for_all_partitions()
+        except Exception:
+            pass
+
+        # Seed outputs state topics so HA entities are not stuck on "unknown" until the first realtime update.
+        try:
+            _seed_output_states(state.snapshot())
+        except Exception:
+            pass
 
         # Seed event logs into Debug UI state (they aren't part of READ/REALTIME payloads).
         try:
@@ -2217,26 +2843,7 @@ def main():
     manager.register_listener("thermostats", lambda updates: on_status_updates("thermostats", updates))
     async def _on_thermostats_cfg(updates):
         try:
-            therms = await manager.getThermostats()
-            keep_ids = []
-            if isinstance(therms, list):
-                for item in therms:
-                    if not isinstance(item, dict):
-                        continue
-                    tid = item.get("ID")
-                    if tid is None:
-                        continue
-                    try:
-                        keep_ids.append(str(int(tid)))
-                    except Exception:
-                        keep_ids.append(str(tid))
-            removed = state.prune_entity_ids("thermostats", keep_ids)
-            if isinstance(therms, list):
-                state.apply_static_update("thermostats", therms)
-            if removed:
-                cleared = _clear_thermostat_discovery(removed)
-                if cleared:
-                    logger.info("Thermostat discovery cleanup (cfg refresh): removed=%s cleared=%s", removed, cleared)
+            state.apply_static_update("thermostats", updates)
         except Exception as exc:
             logger.error(f"Debug thermostats cfg ingest error: {exc}")
 
@@ -2395,7 +3002,6 @@ def main():
                 return {
                     "outputs": {},
                     "scenarios": {},
-                    "domus_thermostats": {},
                     "tag_styles": {
                         "Cancelli": {"icon_off": "mdiGate", "icon_on": "mdiGate", "color_off": "#a9b1c3", "color_on": "#1ed760"},
                         "barre": {"icon_off": "mdiBoomGate", "icon_on": "mdiBoomGate", "color_off": "#a9b1c3", "color_on": "#ffb020"},
@@ -2446,7 +3052,7 @@ def main():
                 raw = {}
             if not isinstance(raw, dict):
                 raw = {}
-            for key in ("outputs", "scenarios", "domus_thermostats", "tag_styles"):
+            for key in ("outputs", "scenarios", "tag_styles"):
                 if not isinstance(raw.get(key), dict):
                     raw[key] = {}
             # Seed defaults if tag_styles is still empty (user can overwrite from UI).
@@ -2505,80 +3111,6 @@ def main():
                 )
             except Exception as exc:
                 logger.error(f"Impossibile salvare ui_tags: {exc}")
-
-        def _domus_thermostat_overrides_from_data(data):
-            out = {}
-            if not isinstance(data, dict):
-                return out
-            raw = data.get("domus_thermostats")
-            if not isinstance(raw, dict):
-                return out
-            for k, v in raw.items():
-                try:
-                    sid = str(int(str(k).strip()))
-                except Exception:
-                    continue
-                if isinstance(v, dict):
-                    enabled = _coerce_bool(v.get("enabled", True), True)
-                    if not enabled:
-                        continue
-                    name = str(v.get("name") or "").strip() or f"Thermostat {sid}"
-                else:
-                    name = str(v or "").strip() or f"Thermostat {sid}"
-                out[sid] = name
-            return out
-
-        def _resolve_domus_thermostat_overrides(overrides, read_data):
-            """
-            Convert UI-selected DOMUS IDs -> real thermostat IDs used by CFG_THERMOSTATS.
-            Preference:
-            1) TEMPERATURES/HUMIDITY entry with ID_TH mapped from selected DOMUS sensor ID
-            2) direct match when selected ID is already a thermostat CFG ID
-            """
-            out = {}
-            if not isinstance(overrides, dict) or not overrides:
-                return out
-            rd = read_data if isinstance(read_data, dict) else {}
-
-            def _nid(v):
-                try:
-                    return str(int(str(v).strip()))
-                except Exception:
-                    return None
-
-            sensor_to_th = {}
-            for key in ("TEMPERATURES", "HUMIDITY"):
-                for item in (rd.get(key) or []):
-                    if not isinstance(item, dict):
-                        continue
-                    sid = _nid(item.get("ID"))
-                    thid = _nid(item.get("ID_TH"))
-                    if sid and thid:
-                        sensor_to_th[sid] = thid
-
-            cfg_ids = set()
-            for item in (rd.get("CFG_THERMOSTATS") or []):
-                if isinstance(item, dict):
-                    tid = _nid(item.get("ID"))
-                    if tid:
-                        cfg_ids.add(tid)
-
-            unresolved = []
-            for sid, name in overrides.items():
-                sid_n = _nid(sid)
-                if not sid_n:
-                    continue
-                tid = sensor_to_th.get(sid_n)
-                if not tid and sid_n in cfg_ids:
-                    tid = sid_n
-                if not tid:
-                    unresolved.append(sid_n)
-                    continue
-                out[tid] = str(name or "").strip() or f"Thermostat {tid}"
-
-            if unresolved:
-                logger.info("DOMUS thermostat IDs senza mapping reale (ignorati): %s", sorted(unresolved, key=int))
-            return out
 
         async def _open_command_ws(pin: str) -> tuple[object, int, bool]:
             """
@@ -2886,78 +3418,6 @@ def main():
                     return {"ok": True, "expires_at": exp}
                 return {"ok": False, "error": "unsupported session action"}
 
-            if entity_type == "domus_thermostat":
-                if action not in ("set", "update", "delete"):
-                    return {"ok": False, "error": "unsupported domus_thermostat action"}
-                entity_id = payload.get("id")
-                try:
-                    entity_id_int = int(entity_id)
-                except Exception:
-                    return {"ok": False, "error": "invalid id"}
-                enabled = True
-                name = ""
-                if isinstance(value, dict):
-                    enabled = _coerce_bool(value.get("enabled", True), True)
-                    name = str(value.get("name") or "").strip()
-                elif action == "delete":
-                    enabled = False
-                with ui_tags_lock:
-                    data = _load_ui_tags_file()
-                    m = data.get("domus_thermostats")
-                    if not isinstance(m, dict):
-                        m = {}
-                        data["domus_thermostats"] = m
-                    key = str(entity_id_int)
-                    if (not enabled) or action == "delete":
-                        m.pop(key, None)
-                    else:
-                        m[key] = {"enabled": True, "name": name}
-                    _save_ui_tags_file(data)
-                    overrides = _domus_thermostat_overrides_from_data(data)
-                    resolved_overrides = _resolve_domus_thermostat_overrides(overrides, getattr(manager, "_readData", None))
-                try:
-                    manager.set_extra_thermostat_names(resolved_overrides)
-                except Exception as exc:
-                    logger.error("set_extra_thermostat_names failed: %s", exc)
-                try:
-                    async def _refresh():
-                        therms = await manager.getThermostats()
-                        keep_ids = []
-                        if isinstance(therms, list):
-                            for item in therms:
-                                if not isinstance(item, dict):
-                                    continue
-                                tid = item.get("ID")
-                                if tid is None:
-                                    continue
-                                try:
-                                    keep_ids.append(str(int(tid)))
-                                except Exception:
-                                    keep_ids.append(str(tid))
-                            removed = state.prune_entity_ids("thermostats", keep_ids)
-                            try:
-                                state.apply_static_update("thermostats", therms)
-                            except Exception:
-                                pass
-                            for item in therms:
-                                if isinstance(item, dict):
-                                    publish("thermostats", item)
-                            if removed:
-                                cleared = _clear_thermostat_discovery(removed)
-                                if cleared:
-                                    logger.info(
-                                        "Thermostat discovery cleanup (DOMUS UI): removed=%s cleared=%s",
-                                        removed,
-                                        cleared,
-                                    )
-                        publish_discovery(state.snapshot())
-
-                    fut = asyncio.run_coroutine_threadsafe(_refresh(), loop)
-                    fut.result(timeout=20)
-                except Exception as exc:
-                    logger.error("domus_thermostat refresh error: %s", exc)
-                return {"ok": True, "id": entity_id_int, "enabled": bool(enabled and action != "delete"), "name": name}
-
             if entity_type == "ui_tags":
                 if action not in ("set", "update"):
                     return {"ok": False, "error": "unsupported ui_tags action"}
@@ -3049,14 +3509,12 @@ def main():
 
                     def _obj_ids(pf: str):
                         out = []
-                        all_ids = set()
                         for e in ents:
                             et = str(e.get("type") or "").lower()
                             try:
                                 eid = str(int(e.get("id")))
                             except Exception:
                                 continue
-                            all_ids.add(eid)
                             if et == "zones":
                                 out.append(("binary_sensor", f"{pf}_zone_{eid}"))
                                 out.append(("binary_sensor", f"{pf}_zone_{eid}_alarm"))
@@ -3073,10 +3531,11 @@ def main():
                                 # Rimuovi anche eventuali vecchi binary_sensor_<out> lasciati da versioni precedenti.
                                 out.append(("binary_sensor", f"{pf}_out_{eid}"))
                             elif et == "domus":
-                                out.append(("sensor", f"{pf}_domus_{eid}"))
                                 out.append(("sensor", f"{pf}_domus_{eid}_temperature"))
                                 out.append(("sensor", f"{pf}_domus_{eid}_humidity"))
                                 out.append(("sensor", f"{pf}_domus_{eid}_illuminance"))
+                                out.append(("binary_sensor", f"{pf}_domus_{eid}_threshold_light"))
+                                out.append(("binary_sensor", f"{pf}_domus_{eid}_threshold_humidity"))
                             elif et == "scenarios":
                                 out.append(("script", f"{pf}_scen_{eid}"))
                                 out.append(("button", f"{pf}_scen_{eid}"))
@@ -3089,13 +3548,8 @@ def main():
                             elif et == "systems":
                                 for key in ("in", "out"):
                                     out.append(("sensor", f"{pf}_sys_{eid}_{key}"))
-                                out.append(("sensor", f"{pf}_sys_{eid}_alarm_state"))
                             elif et == "schedulers":
                                 out.append(("switch", f"{pf}_sched_{eid}"))
-                        # Legacy cleanup: remove possible stale climate topics created by old misclassification
-                        # (e.g. DOMUS IDs previously published as thermostats).
-                        for any_id in all_ids:
-                            out.append(("climate", f"{pf}_therm_{any_id}"))
                         # Panel buttons (no entity list)
                         out.append(("button", f"{pf}_panel_clear_memories"))
                         out.append(("button", f"{pf}_panel_clear_communications"))
@@ -3754,6 +4208,10 @@ def main():
             publish_discovery(state.snapshot())
             try:
                 _seed_partition_states(state.snapshot())
+            except Exception:
+                pass
+            try:
+                _seed_output_states(state.snapshot())
             except Exception:
                 pass
         except Exception as exc:

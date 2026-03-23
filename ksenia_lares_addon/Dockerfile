@@ -3,7 +3,7 @@ FROM python:3.11-alpine
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
-RUN apk add --no-cache bash
+RUN apk add --no-cache bash ca-certificates && update-ca-certificates
 
 COPY app/ /app/
 COPY www/ /app/www/

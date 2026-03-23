@@ -13,7 +13,39 @@ from crc import addCRC
 read_types ='["OUTPUTS","BUS_HAS","SCENARIOS","POWER_LINES","PARTITIONS","ZONES","STATUS_SYSTEM","CFG_SCHEDULER_TIMERS","CFG_HOLIDAYS","TEMPERATURES","HUMIDITY","CFG_THERMOSTATS","CFG_ACCOUNTS"]'
 realtime_types='["STATUS_OUTPUTS","STATUS_BUS_HA_SENSORS","STATUS_POWER_LINES","STATUS_PARTITIONS","STATUS_ZONES","STATUS_SYSTEM","STATUS_CONNECTION","STATUS_TEMPERATURES","STATUS_HUMIDITY"]'
 
+try:
+    REALTIME_TYPES_LIST = json.loads(realtime_types)
+    if not isinstance(REALTIME_TYPES_LIST, list):
+        REALTIME_TYPES_LIST = []
+except Exception:
+    REALTIME_TYPES_LIST = []
+
 cmd_id = 1
+
+def build_realtime_register_cmd(login_id, types, register_types=None):
+    """
+    Build a REALTIME/REGISTER command.
+
+    Returns (expected_id, json_cmd, wait_for_types_list)
+    """
+    global cmd_id
+    cmd_id += 1
+    expected_id = str(cmd_id)
+    types_list = types if isinstance(types, list) else []
+    register_list = register_types if isinstance(register_types, list) else types_list
+    types_json = json.dumps(register_list)
+    json_cmd = addCRC(
+        '{"SENDER":"HomeAssistant", "RECEIVER":"", "CMD":"REALTIME", "ID":"'
+        + expected_id
+        + '", "PAYLOAD_TYPE":"REGISTER", "PAYLOAD":{"ID_LOGIN":"'
+        + str(login_id)
+        + '","TYPES":'
+        + types_json
+        + '},"TIMESTAMP":"'
+        + str(int(time.time()))
+        + '","CRC_16":"0x0000"}'
+    )
+    return expected_id, json_cmd, types_list
 
 
 async def _dispatch_unhandled(dispatch_unhandled, message: dict):
@@ -83,6 +115,41 @@ async def realtime(websocket,login_id,_LOGGER):
         _LOGGER.error(f"Realtime call failed: {e}")
         _LOGGER.error(response_realtime)
     return response_realtime
+
+
+"""
+Refresh realtime snapshot for a subset of TYPES.
+
+This sends another REALTIME/REGISTER message and waits for a reply containing at least
+one of the requested payload keys.
+"""
+async def realtime_select(
+    websocket, login_id, _LOGGER, types, dispatch_unhandled=None, register_types=None
+):
+    expected_id, json_cmd, types_list = build_realtime_register_cmd(
+        login_id, types, register_types=register_types
+    )
+    try:
+        await websocket.send(json_cmd)
+        deadline = time.time() + 10
+        while True:
+            timeout = max(0.1, deadline - time.time())
+            if timeout <= 0:
+                return {}
+            json_resp = await asyncio.wait_for(websocket.recv(), timeout=timeout)
+            resp = json.loads(json_resp)
+            if str(resp.get("ID") or "") != str(expected_id):
+                await _dispatch_unhandled(dispatch_unhandled, resp)
+                continue
+            payload = resp.get("PAYLOAD") if isinstance(resp, dict) else None
+            if isinstance(payload, dict):
+                for t in types_list:
+                    if t in payload:
+                        return resp
+            await _dispatch_unhandled(dispatch_unhandled, resp)
+    except Exception as e:
+        _LOGGER.error(f"realtime_select call failed: {e}")
+        return {}
 
 """
 Fetch panel system version/info (MODEL/FW/WS/etc).
@@ -185,12 +252,24 @@ async def readSchedulers(websocket, login_id, _LOGGER, dispatch_unhandled=None):
                 return {}
             json_resp = await asyncio.wait_for(websocket.recv(), timeout=timeout)
             resp = json.loads(json_resp)
-            if resp.get("CMD") == "READ_RES" and str(resp.get("ID")) == expected_id:
+            if resp.get("CMD") == "READ_RES":
                 payload = resp.get("PAYLOAD") or {}
-                return payload if isinstance(payload, dict) else {}
+                # Some panels don't echo the same ID reliably; accept any READ_RES that
+                # contains the expected scheduler config keys.
+                if isinstance(payload, dict) and (
+                    isinstance(payload.get("CFG_SCHEDULER_TIMERS"), list)
+                    or isinstance(payload.get("CFG_HOLIDAYS"), list)
+                ):
+                    if str(resp.get("ID")) != expected_id:
+                        _LOGGER.warning(
+                            "readSchedulers: READ_RES id mismatch (expected %s, got %s) - accepting reply",
+                            expected_id,
+                            resp.get("ID"),
+                        )
+                    return payload
             await _dispatch_unhandled(dispatch_unhandled, resp)
     except Exception as e:
-        _LOGGER.error(f"readSchedulers call failed: {e}")
+        _LOGGER.error("readSchedulers call failed: %r (%s)", e, type(e).__name__)
         return {}
 
 """
@@ -221,12 +300,21 @@ async def readZones(websocket, login_id, _LOGGER, dispatch_unhandled=None):
                 return {}
             json_resp = await asyncio.wait_for(websocket.recv(), timeout=timeout)
             resp = json.loads(json_resp)
-            if resp.get("CMD") == "READ_RES" and str(resp.get("ID")) == expected_id:
+            if resp.get("CMD") == "READ_RES":
                 payload = resp.get("PAYLOAD") or {}
-                return payload if isinstance(payload, dict) else {}
+                # Some panels don't echo the same ID reliably; accept any READ_RES that
+                # contains ZONES (this poller is the only one issuing READ ZONES).
+                if isinstance(payload, dict) and isinstance(payload.get("ZONES"), list):
+                    if str(resp.get("ID")) != expected_id:
+                        _LOGGER.warning(
+                            "readZones: READ_RES id mismatch (expected %s, got %s) - accepting reply",
+                            expected_id,
+                            resp.get("ID"),
+                        )
+                    return payload
             await _dispatch_unhandled(dispatch_unhandled, resp)
     except Exception as e:
-        _LOGGER.error(f"readZones call failed: {e}")
+        _LOGGER.error("readZones call failed: %r (%s)", e, type(e).__name__)
         return {}
 
 """
