@@ -2872,13 +2872,13 @@ def main():
         if (not saved) and last_exc is not None:
             logger.error(f"Impossibile salvare ui_tags: {last_exc}")
 
-    def _domus_thermostat_overrides_from_data(data):
-        out = {}
-        if not isinstance(data, dict):
-            return out
-        raw = data.get("domus_thermostats")
-        if not isinstance(raw, dict):
-            return out
+        def _domus_thermostat_overrides_from_data(data):
+            out = {}
+            if not isinstance(data, dict):
+                return out
+            raw = data.get("domus_thermostats")
+            if not isinstance(raw, dict):
+                return out
         for k, v in raw.items():
             try:
                 sid = str(int(str(k).strip()))
@@ -2891,20 +2891,34 @@ def main():
                 name = str(v.get("name") or "").strip() or f"Thermostat {sid}"
             else:
                 name = str(v or "").strip() or f"Thermostat {sid}"
-            out[sid] = name
-        return out
-
-    def _resolve_domus_thermostat_overrides(overrides, read_data):
-        out = {}
-        if not isinstance(overrides, dict) or not overrides:
+                out[sid] = name
             return out
-        rd = read_data if isinstance(read_data, dict) else {}
 
-        def _nid(v):
-            try:
-                return str(int(str(v).strip()))
-            except Exception:
-                return None
+        def _resolve_domus_thermostat_overrides(overrides, read_data):
+            out = {}
+            if not isinstance(overrides, dict) or not overrides:
+                return out
+            rd = read_data if isinstance(read_data, dict) else {}
+            ui_tags = rd.get("_ui_tags") if isinstance(rd, dict) else None
+            if not isinstance(ui_tags, dict):
+                ui_tags = _load_ui_tags_file()
+
+            domus_map_raw = ui_tags.get("domus_thermostat_map") if isinstance(ui_tags, dict) else {}
+            domus_map = {}
+            if isinstance(domus_map_raw, dict):
+                for k, v in domus_map_raw.items():
+                    try:
+                        sk = str(int(str(k).strip()))
+                        sv = str(int(str(v).strip()))
+                    except Exception:
+                        continue
+                    domus_map[sk] = sv
+
+            def _nid(v):
+                try:
+                    return str(int(str(v).strip()))
+                except Exception:
+                    return None
 
         sensor_to_th = {}
         for key in ("TEMPERATURES", "HUMIDITY"):
@@ -2928,9 +2942,9 @@ def main():
             sid_n = _nid(sid)
             if not sid_n:
                 continue
-            tid = sensor_to_th.get(sid_n)
-            if not tid and sid_n in cfg_ids:
-                tid = sid_n
+                tid = domus_map.get(sid_n) or sensor_to_th.get(sid_n)
+                if not tid and sid_n in cfg_ids:
+                    tid = sid_n
             if not tid:
                 # Keep DOMUS ID as fallback so selected items still appear in UI/MQTT
                 # even when panel mapping (ID_TH/CFG_THERMOSTATS) is not exposed.

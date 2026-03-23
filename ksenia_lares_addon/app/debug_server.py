@@ -363,6 +363,16 @@ class LaresState:
         try:
             ui_tags = _load_ui_tags()
             dmap = ui_tags.get("domus_thermostats") if isinstance(ui_tags, dict) else {}
+            domus_map_raw = ui_tags.get("domus_thermostat_map") if isinstance(ui_tags, dict) else {}
+            domus_map = {}
+            if isinstance(domus_map_raw, dict):
+                for k, v in domus_map_raw.items():
+                    try:
+                        sk = str(int(str(k).strip()))
+                        sv = str(int(str(v).strip()))
+                    except Exception:
+                        continue
+                    domus_map[sk] = sv
             if isinstance(dmap, dict) and dmap:
                 existing = set()
                 for e in entities:
@@ -372,7 +382,8 @@ class LaresState:
                     if tid is not None:
                         existing.add(tid)
                 for raw_id, cfg in dmap.items():
-                    tid = self._norm_entity_id(raw_id)
+                    mapped = domus_map.get(str(raw_id).strip())
+                    tid = self._norm_entity_id(mapped if mapped is not None else raw_id)
                     if tid is None or tid in existing:
                         continue
                     enabled = True
