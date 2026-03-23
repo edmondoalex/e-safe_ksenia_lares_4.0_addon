@@ -573,7 +573,11 @@ class LaresState:
                 except Exception:
                     pass
             self._meta["last_update"] = time.time()
-        return sorted(set(removed), key=lambda s: int(s) if str(s).isdigit() else str(s))
+        # Keep sorting stable even when IDs mix numeric and non-numeric strings.
+        return sorted(
+            set(removed),
+            key=lambda s: (0, int(s)) if str(s).isdigit() else (1, str(s)),
+        )
 
     def _upsert(self, entity_type, entity_id, patch, now):
         if entity_id is None:
