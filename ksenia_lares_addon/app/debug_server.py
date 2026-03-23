@@ -349,6 +349,17 @@ class LaresState:
         with self._lock:
             entities = list(self._entities.values())
             meta = dict(self._meta)
+        try:
+            entities = [
+                e
+                for e in entities
+                if not (
+                    str(e.get("type") or "").lower() == "thermostats"
+                    and str(e.get("id") or "").strip().upper() == "NA"
+                )
+            ]
+        except Exception:
+            pass
         # Apply UI-level overrides (persisted in /data) such as thermostat custom names.
         try:
             now = time.time()
@@ -14511,10 +14522,32 @@ def render_thermostat_detail(snapshot, thermostat_id: str):
         toast._t = setTimeout(() => { el.style.display = "none"; }, 1400);
       }
 
+      function _thermObj(v) {
+        return (v && typeof v === "object") ? v : {};
+      }
+      function _mergeTherm(stTherm, rtTherm) {
+        const merged = Object.assign({}, stTherm || {}, rtTherm || {});
+        const stThr = _thermObj(stTherm && stTherm.TEMP_THR ? stTherm.TEMP_THR : null);
+        const rtThr = _thermObj(rtTherm && rtTherm.TEMP_THR ? rtTherm.TEMP_THR : null);
+        if (Object.keys(stThr).length || Object.keys(rtThr).length) {
+          merged.TEMP_THR = Object.assign({}, stThr, rtThr);
+        }
+        return merged;
+      }
       function getTherm() {
         const ents = (snap && snap.entities) ? snap.entities : [];
         for (const e of ents) {
-          if (String(e.type || "").toLowerCase() === "thermostats" && String(e.id) === TH_ID) return e;
+          if (String(e.type || "").toLowerCase() === "thermostats" && String(e.id) === TH_ID) {
+            const st = _thermObj(e.static);
+            const rt = _thermObj(e.realtime);
+            const merged = Object.assign({}, st, rt);
+            const stTherm = _thermObj(st.THERM);
+            const rtTherm = _thermObj(rt.THERM);
+            if (Object.keys(stTherm).length || Object.keys(rtTherm).length) {
+              merged.THERM = _mergeTherm(stTherm, rtTherm);
+            }
+            return Object.assign({}, e, { static: st, realtime: merged });
+          }
         }
         return null;
       }

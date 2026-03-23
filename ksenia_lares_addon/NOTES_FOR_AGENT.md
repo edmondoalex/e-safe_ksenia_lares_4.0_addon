@@ -1,4 +1,5 @@
 - Cosa e cambiato:
+  - UI termostati: usa i dati `static` come fallback quando `realtime` e vuoto (niente piu `--`).
   - Persistenza `ui_tags.json` e nomi termostati spostata su `/addon_configs/ksenia_lares_addon` con fallback a `/data`.
   - Supporto mappa manuale `domus_thermostat_map` (DOMUS ID -> TH ID) per valori/comandi.
   - Aggiunto campo TH ID in UI `index_debug` per salvare la mappa direttamente da interfaccia.
@@ -8,8 +9,6 @@
   - Resi disponibili i helper `ui_tags`/domus anche su reconnect per la sync termostati.
 - File toccati:
   - `app/debug_server.py`
-  - `app/websocketmanager.py`
-  - `app/main.py`
   - `config.yaml`
 - Versione (`config.yaml`):
-  - incrementata a 5.2.77 per includere mapping DOMUS->TH in runtime.
+  - incrementata a 5.2.78 per mostrare i valori termostati usando fallback `static`.
