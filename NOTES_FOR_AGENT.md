@@ -216,3 +216,11 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/main.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Sensor stato scenari allarme via MQTT
+- Aggiunta discovery MQTT del sensore testuale `Stato Scenari allarme` su `systems`, con `value_template` da `ARM.D`.
+- Aggiornato `cleanup_discovery` per includere anche il topic sensor legacy/attuale `*_sys_<id>_alarm_state`.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.16` (feature: stato scenari allarme in MQTT).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/config.yaml

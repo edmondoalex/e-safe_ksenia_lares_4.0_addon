@@ -1477,6 +1477,20 @@ def main():
                 payload = _apply_device(payload, "systems")
                 if _disc_publish("sensor", obj_id, payload):
                     published += 1
+            # Stato testuale scenari allarme (da ARM.D).
+            obj_id = f"{mqtt_prefix_slug}_sys_{sid}_alarm_state"
+            state_topic = f"{mqtt_prefix}/systems/{sid}"
+            payload = {
+                "name": f"Sistema {sid} Stato Scenari allarme",
+                "unique_id": obj_id,
+                "state_topic": state_topic,
+                "value_template": "{{ value_json.get('ARM', {}).get('D', '') }}",
+                "icon": "mdi:shield-alert-outline",
+                "default_entity_id": f"sensor.{obj_id}",
+            }
+            payload = _apply_device(payload, "systems")
+            if _disc_publish("sensor", obj_id, payload):
+                published += 1
         logger.info(f"MQTT discovery: entities={len(entities)} per_type={per_type} published={published}")
         return published
 
@@ -2722,6 +2736,7 @@ def main():
                             elif et == "systems":
                                 for key in ("in", "out"):
                                     out.append(("sensor", f"{pf}_sys_{eid}_{key}"))
+                                out.append(("sensor", f"{pf}_sys_{eid}_alarm_state"))
                             elif et == "schedulers":
                                 out.append(("switch", f"{pf}_sched_{eid}"))
                         # Legacy cleanup: remove possible stale climate topics created by old misclassification
