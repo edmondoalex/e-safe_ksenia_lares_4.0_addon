@@ -335,3 +335,11 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/main.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Ripristino temperatura/setpoint termostati da Domus
+- Corretto instradamento realtime temperatura/umidita': ora i payload con ID sensore Domus vengono mappati all'ID termostato reale tramite `ID_TH` (`TEMPERATURES`/`HUMIDITY`).
+- In `getThermostats()` i dati realtime sono normalizzati su ID termostato reale e la temperatura corrente viene esposta anche quando arriva come `TEM`.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.30` (bugfix: termostato senza temperatura/setpoint in UI dopo mapping strict).
+
+File toccati:
+- ksenia_lares_addon/app/websocketmanager.py
+- ksenia_lares_addon/config.yaml

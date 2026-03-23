@@ -172,6 +172,20 @@ class WebSocketManager:
         # Strict mode: expose thermostat IDs only when explicitly enabled from DOMUS UI.
         return set(self._extra_thermostat_names.keys())
 
+    def _sensor_to_thermostat_map(self) -> dict[str, str]:
+        out = {}
+        rd = self._readData if isinstance(self._readData, dict) else {}
+        for key in ("TEMPERATURES", "HUMIDITY"):
+            for item in (rd.get(key) or []):
+                if not isinstance(item, dict):
+                    continue
+                sid = self._norm_id(item.get("ID"))
+                tid = self._norm_id(item.get("ID_TH"))
+                if sid is None or tid is None:
+                    continue
+                out[sid] = tid
+        return out
+
     def set_on_reconnect(self, callback):
         """
         Register an async callback called after (re)connect completes initial sync.
@@ -1016,13 +1030,24 @@ class WebSocketManager:
                 domus_temp_updates = []
                 if isinstance(temps, list):
                     known = self._known_thermostat_ids()
-                    filtered = []
+                    sensor_to_th = self._sensor_to_thermostat_map()
+                    filtered_by_id = {}
                     for x in temps:
                         if not isinstance(x, dict):
                             continue
                         xid = self._norm_id(x.get("ID"))
-                        if known and xid in known:
-                            filtered.append(x)
+                        tid = sensor_to_th.get(xid)
+                        if known and ((xid in known) or (tid in known)):
+                            out = dict(x)
+                            out["ID"] = tid if tid in known else xid
+                            tcur = out.get("TEMP")
+                            if tcur in (None, ""):
+                                tcur = out.get("TEM")
+                            if tcur not in (None, ""):
+                                out["TEMP"] = tcur
+                            out_id = self._norm_id(out.get("ID"))
+                            if out_id is not None:
+                                filtered_by_id[out_id] = out
                             continue
                         # DOMUS temperatures are usually exposed as TEM (sometimes TEMP).
                         # Keep thermostat channel strict to CFG_THERMOSTATS IDs only.
@@ -1031,7 +1056,7 @@ class WebSocketManager:
                             tval = x.get("TEMP")
                         if tval not in (None, "") and xid is not None:
                             domus_temp_updates.append({"ID": xid, "TEM": tval})
-                    temps = filtered
+                    temps = list(filtered_by_id.values())
                 if self._realtimeInitialData is None:
                     self._realtimeInitialData = {}
                 if "PAYLOAD" not in self._realtimeInitialData:
@@ -1064,18 +1089,27 @@ class WebSocketManager:
                 domus_hum_updates = []
                 if isinstance(hum, list):
                     known = self._known_thermostat_ids()
-                    filtered = []
+                    sensor_to_th = self._sensor_to_thermostat_map()
+                    filtered_by_id = {}
                     for x in hum:
                         if not isinstance(x, dict):
                             continue
                         xid = self._norm_id(x.get("ID"))
-                        if known and xid in known:
-                            filtered.append(x)
+                        tid = sensor_to_th.get(xid)
+                        if known and ((xid in known) or (tid in known)):
+                            out = dict(x)
+                            out["ID"] = tid if tid in known else xid
+                            hcur = out.get("HUM")
+                            if hcur not in (None, ""):
+                                out["HUM"] = hcur
+                            out_id = self._norm_id(out.get("ID"))
+                            if out_id is not None:
+                                filtered_by_id[out_id] = out
                             continue
                         hval = x.get("HUM")
                         if hval not in (None, "") and xid is not None:
                             domus_hum_updates.append({"ID": xid, "HUM": hval})
-                    hum = filtered
+                    hum = list(filtered_by_id.values())
                 if self._realtimeInitialData is None:
                     self._realtimeInitialData = {}
                 if "PAYLOAD" not in self._realtimeInitialData:
@@ -2019,25 +2053,47 @@ class WebSocketManager:
         if not isinstance(hums, list):
             hums = []
 
+        ids = set(self._extra_thermostat_names.keys())
+        if not ids:
+            # Strict mode: thermostats are only those explicitly enabled from DOMUS UI.
+            return []
+        sensor_to_th = self._sensor_to_thermostat_map()
+
         temp_by_id = {}
         for x in temps:
             if not isinstance(x, dict):
                 continue
             nid = self._norm_id(x.get("ID"))
-            if nid is not None:
-                temp_by_id[nid] = x
+            if nid is None:
+                continue
+            tid = sensor_to_th.get(nid)
+            if tid not in ids:
+                tid = nid if nid in ids else None
+            if tid is None:
+                continue
+            cur = dict(x)
+            cur["ID"] = tid
+            tval = cur.get("TEMP")
+            if tval in (None, ""):
+                tval = cur.get("TEM")
+            if tval not in (None, ""):
+                cur["TEMP"] = tval
+            temp_by_id[tid] = cur
         hum_by_id = {}
         for x in hums:
             if not isinstance(x, dict):
                 continue
             nid = self._norm_id(x.get("ID"))
-            if nid is not None:
-                hum_by_id[nid] = x
-
-        ids = set(self._extra_thermostat_names.keys())
-        if not ids:
-            # Strict mode: thermostats are only those explicitly enabled from DOMUS UI.
-            return []
+            if nid is None:
+                continue
+            tid = sensor_to_th.get(nid)
+            if tid not in ids:
+                tid = nid if nid in ids else None
+            if tid is None:
+                continue
+            cur = dict(x)
+            cur["ID"] = tid
+            hum_by_id[tid] = cur
 
         out = []
         for tid in sorted(ids, key=lambda s: int(s) if str(s).isdigit() else str(s)):
