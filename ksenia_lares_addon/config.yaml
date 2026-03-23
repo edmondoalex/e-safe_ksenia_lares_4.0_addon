@@ -1,0 +1,77 @@
+name: e-Safe Ksenia Lares 4.0
+slug: ksenia_lares_addon
+version: "5.2.12"
+description: Add-on Home Assistant per centrale Ksenia Lares con MQTT Discovery
+startup: services
+boot: auto
+
+environment: {}
+
+# Debug UI via Home Assistant Ingress (evita conflitti di porte sull'host)
+ingress: true
+ingress_port: 8080
+ingress_entry: /menu
+
+# Debug UI anche su porta host (porta container 8080 -> host 18888)
+ports:
+  8080/tcp: 18888
+  8081/tcp: 18889
+ports_description:
+  8080/tcp: Debug UI (index_debug)
+  8081/tcp: Security UI (/security)
+# Nota: [PORT:8080] è la porta del container; sull'host la trovi su 18888.
+webui: http://[HOST]:[PORT:8080]/menu
+
+arch:
+  - amd64
+  - aarch64
+  - armv7
+
+options:
+  ksenia_host: ""
+  ksenia_port: 0
+  ksenia_pin: ""
+  mqtt_host: "core-mosquitto"
+  mqtt_port: 1883
+  mqtt_user: ""
+  mqtt_password: ""
+  mqtt_prefix: "ksenia"
+  mqtt_debug_verbose: false
+  output_debug_verbose: false
+  debug_thermostats: false
+  web_pin_session_required: false
+  # WS2 (sessione PIN) - imposti questi valori in Home Assistant → Add-on → Ksenia Lares → Configurazione.
+  # - web_pin_session_minutes_default: durata del token PIN (quanto tempo prima di richiedere di nuovo il PIN).
+  # - security_cmd_ws_idle_timeout_sec: dopo quanti secondi di inattività chiudere la WS2 verso la centrale (il token resta valido).
+  web_pin_session_minutes_default: 5
+  security_cmd_ws_idle_timeout_sec: 20
+  ws_reconnect_cooldown_sec: 8
+  debug_ui_port: 8080
+  security_ui_port: 8081
+  icon_http_enabled: false
+  icon_http_base_url: ""
+  icon_http_token: ""
+  icon_http_timeout: 3
+
+schema:
+  ksenia_host: str
+  ksenia_port: int
+  ksenia_pin: password
+  mqtt_host: str
+  mqtt_port: int
+  mqtt_user: str?
+  mqtt_password: password?
+  mqtt_prefix: str
+  mqtt_debug_verbose: bool?
+  output_debug_verbose: bool?
+  debug_thermostats: bool?
+  web_pin_session_required: bool?
+  web_pin_session_minutes_default: int?
+  security_cmd_ws_idle_timeout_sec: int?
+  ws_reconnect_cooldown_sec: int?
+  debug_ui_port: int?
+  security_ui_port: int?
+  icon_http_enabled: bool?
+  icon_http_base_url: str?
+  icon_http_token: password?
+  icon_http_timeout: int?
