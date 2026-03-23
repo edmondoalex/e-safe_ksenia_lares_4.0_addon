@@ -62,13 +62,17 @@ _ASSET_MAP = {
     "logo_ekonex": "logo_ekonex.png",
     "e-safe_scr": "e-safe_scr.png",
 }
-_UI_TAGS_PATH = "/data/ui_tags.json"
+_UI_TAGS_PATH = "/addon_configs/ksenia_lares_addon/ui_tags.json"
 _UI_TAGS_FALLBACK_PATHS = (
+    "/addon_configs/ksenia_lares_addon/ui_tags.json",
     "/data/ui_tags.json",
     "/config/ui_tags.json",
     "./ui_tags.json",
 )
-_UI_THERM_NAMES_PATH = "/data/ui_thermostat_names.json"
+_UI_THERM_NAMES_PATHS = (
+    "/addon_configs/ksenia_lares_addon/ui_thermostat_names.json",
+    "/data/ui_thermostat_names.json",
+)
 _UI_THERM_NAMES_CACHE = {"ts": 0.0, "data": {}}
 _UI_FAVORITES_PATH = "/data/ui_favorites.json"
 _UI_FAVORITES_LOCK = threading.Lock()
@@ -896,38 +900,58 @@ def _save_ui_favorites(data, path=_UI_FAVORITES_PATH):
         pass
 
 
-def _load_ui_thermostat_names(path=_UI_THERM_NAMES_PATH):
-    try:
-        if not os.path.exists(path):
-            return {}
-        with open(path, "r", encoding="utf-8") as f:
-            raw = json.load(f)
-        if not isinstance(raw, dict):
-            return {}
-        out = {}
-        for k, v in raw.items():
-            sid = str(k)
-            if isinstance(v, str) and v.strip():
-                out[sid] = v.strip()
-        return out
-    except Exception:
-        return {}
+def _load_ui_thermostat_names(path=None):
+    paths = []
+    if path:
+        paths.append(path)
+    paths.extend(_UI_THERM_NAMES_PATHS)
+    seen = set()
+    ordered = []
+    for p in paths:
+        sp = str(p or "").strip()
+        if not sp or sp in seen:
+            continue
+        seen.add(sp)
+        ordered.append(sp)
+    for cand in ordered:
+        try:
+            if not os.path.exists(cand):
+                continue
+            with open(cand, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            if not isinstance(raw, dict):
+                continue
+            out = {}
+            for k, v in raw.items():
+                sid = str(k)
+                if isinstance(v, str) and v.strip():
+                    out[sid] = v.strip()
+            return out
+        except Exception:
+            continue
+    return {}
 
 
-def _save_ui_thermostat_names(data: dict, path=_UI_THERM_NAMES_PATH):
-    try:
-        if not isinstance(data, dict):
-            data = {}
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, path)
-        _UI_THERM_NAMES_CACHE["data"] = dict(data)
-        _UI_THERM_NAMES_CACHE["ts"] = time.time()
-        return True
-    except Exception:
-        return False
+def _save_ui_thermostat_names(data: dict, path=None):
+    if not isinstance(data, dict):
+        data = {}
+    targets = []
+    if path:
+        targets.append(path)
+    targets.extend(_UI_THERM_NAMES_PATHS)
+    for target in targets:
+        try:
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            tmp = target + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, target)
+            _UI_THERM_NAMES_CACHE["data"] = dict(data)
+            _UI_THERM_NAMES_CACHE["ts"] = time.time()
+            return True
+        except Exception:
+            continue
+    return False
 
 
 def _get_ui_tag(ui_tags, entity_type, entity_id):

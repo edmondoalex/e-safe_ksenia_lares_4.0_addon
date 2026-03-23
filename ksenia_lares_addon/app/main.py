@@ -2749,10 +2749,11 @@ def main():
     _ui_tags_env = str(os.getenv("KS_UI_TAGS_PATH", "") or "").strip()
     if _ui_tags_env:
         _ui_tags_candidates.append(Path(_ui_tags_env))
-    ui_tags_persistent_path = Path("/data/ui_tags.json")
+    ui_tags_persistent_path = Path("/addon_configs/ksenia_lares_addon/ui_tags.json")
     _ui_tags_candidates.extend(
         [
             ui_tags_persistent_path,
+            Path("/data/ui_tags.json"),
             Path("/config/ui_tags.json"),
             Path("./ui_tags.json"),
         ]
