@@ -258,3 +258,11 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/main.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Domus temperatura non creata in HA
+- Corretto payload discovery temperatura Domus: `unit_of_measurement` da `C` a `°C` (formato valido HA per `device_class: temperature`).
+- Normalizzati i valori numerici Domus pubblicati su topic dedicati (`10,6` -> `10.6`) per compatibilita' parser sensori HA.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.21` (fix creazione/lettura sensore temperatura Domus).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/config.yaml

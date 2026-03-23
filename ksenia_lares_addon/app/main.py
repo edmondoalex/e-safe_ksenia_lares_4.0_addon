@@ -918,6 +918,22 @@ def main():
                 lval = dom.get("LHT")
                 if lval in (None, ""):
                     lval = payload.get("LHT")
+                # Normalize numeric strings for HA sensors (e.g. "10,6" -> "10.6").
+                try:
+                    if tval not in (None, ""):
+                        tval = str(tval).strip().replace(",", ".")
+                except Exception:
+                    pass
+                try:
+                    if hval not in (None, ""):
+                        hval = str(hval).strip().replace(",", ".")
+                except Exception:
+                    pass
+                try:
+                    if lval not in (None, ""):
+                        lval = str(lval).strip().replace(",", ".")
+                except Exception:
+                    pass
                 for suffix, val in (
                     ("temperature", tval),
                     ("humidity", hval),
@@ -1341,7 +1357,7 @@ def main():
                 "name": f"{name} Temperatura",
                 "unique_id": obj_temp,
                 "state_topic": f"{mqtt_prefix}/domus/{eid}/temperature",
-                "unit_of_measurement": "C",
+                "unit_of_measurement": "°C",
                 "device_class": "temperature",
                 "default_entity_id": f"sensor.{obj_temp}",
             }
