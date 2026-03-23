@@ -208,3 +208,11 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/debug_server.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Cleanup discovery termostati legacy
+- Esteso `cleanup_discovery` per cancellare anche topic climate legacy `*_therm_<id>` su tutti gli ID snapshot (non solo sui termostati correnti), così rimuove i termostati rimasti da vecchia classificazione DOMUS.
+- Nessun cambio a `unique_id` attuali: fix solo di pulizia retained MQTT discovery.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.15` (fix cleanup termostati legacy).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/config.yaml

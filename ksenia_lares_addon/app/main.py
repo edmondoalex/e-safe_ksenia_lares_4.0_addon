@@ -2687,12 +2687,14 @@ def main():
 
                     def _obj_ids(pf: str):
                         out = []
+                        all_ids = set()
                         for e in ents:
                             et = str(e.get("type") or "").lower()
                             try:
                                 eid = str(int(e.get("id")))
                             except Exception:
                                 continue
+                            all_ids.add(eid)
                             if et == "zones":
                                 out.append(("binary_sensor", f"{pf}_zone_{eid}"))
                                 out.append(("binary_sensor", f"{pf}_zone_{eid}_alarm"))
@@ -2722,6 +2724,10 @@ def main():
                                     out.append(("sensor", f"{pf}_sys_{eid}_{key}"))
                             elif et == "schedulers":
                                 out.append(("switch", f"{pf}_sched_{eid}"))
+                        # Legacy cleanup: remove possible stale climate topics created by old misclassification
+                        # (e.g. DOMUS IDs previously published as thermostats).
+                        for any_id in all_ids:
+                            out.append(("climate", f"{pf}_therm_{any_id}"))
                         # Panel buttons (no entity list)
                         out.append(("button", f"{pf}_panel_clear_memories"))
                         out.append(("button", f"{pf}_panel_clear_communications"))
