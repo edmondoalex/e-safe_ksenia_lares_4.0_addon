@@ -422,3 +422,11 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/main.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Snapshot fallback: termostati da UI tags
+- Aggiunto fallback in `LaresState.snapshot()`: se mancano entita `thermostats` runtime, vengono iniettate entita minime dai `domus_thermostats` salvati in `/data/ui_tags.json` (solo `enabled=true`).
+- Questo garantisce visibilita' in UI `/thermostats` e permette discovery MQTT anche quando il sync WS non popola subito i termostati.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.68` (fix: nessun termostato visibile nonostante selezione Domus).
+
+File toccati:
+- ksenia_lares_addon/app/debug_server.py
+- ksenia_lares_addon/config.yaml

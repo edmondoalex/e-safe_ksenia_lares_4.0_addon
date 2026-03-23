@@ -333,6 +333,47 @@ class LaresState:
                             st["DES"] = des.strip()
         except Exception:
             pass
+        # Safety net: ensure UI-selected DOMUS thermostats are visible even if
+        # runtime thermostat sync has not produced entities yet.
+        try:
+            ui_tags = _load_ui_tags()
+            dmap = ui_tags.get("domus_thermostats") if isinstance(ui_tags, dict) else {}
+            if isinstance(dmap, dict) and dmap:
+                existing = set()
+                for e in entities:
+                    if str(e.get("type") or "").lower() != "thermostats":
+                        continue
+                    tid = self._norm_entity_id(e.get("id"))
+                    if tid is not None:
+                        existing.add(tid)
+                for raw_id, cfg in dmap.items():
+                    tid = self._norm_entity_id(raw_id)
+                    if tid is None or tid in existing:
+                        continue
+                    enabled = True
+                    name = ""
+                    if isinstance(cfg, dict):
+                        enabled = _coerce_bool(cfg.get("enabled", True), True)
+                        name = str(cfg.get("name") or "").strip()
+                    else:
+                        name = str(cfg or "").strip()
+                    if not enabled:
+                        continue
+                    entities.append(
+                        {
+                            "key": f"thermostats:{tid}",
+                            "type": "thermostats",
+                            "id": tid,
+                            "access": "rw",
+                            "name": name or f"Termostato {tid}",
+                            "static": {"ID": tid, "DES": name or f"Termostato {tid}"},
+                            "realtime": {},
+                            "last_seen": 0.0,
+                            "_rt_initialized": False,
+                        }
+                    )
+        except Exception:
+            pass
         return {"meta": meta, "entities": entities}
 
     def set_ws1_status(self, connected: bool):
