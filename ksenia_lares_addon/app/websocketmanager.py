@@ -169,18 +169,8 @@ class WebSocketManager:
         return s
 
     def _known_thermostat_ids(self) -> set[str]:
-        cfg_list = (self._readData or {}).get("CFG_THERMOSTATS") or []
-        if not isinstance(cfg_list, list):
-            cfg_list = []
-        out = set()
-        for item in cfg_list:
-            if not isinstance(item, dict):
-                continue
-            nid = self._norm_id(item.get("ID"))
-            if nid is not None:
-                out.add(nid)
-        out.update(self._extra_thermostat_names.keys())
-        return out
+        # Strict mode: expose thermostat IDs only when explicitly enabled from DOMUS UI.
+        return set(self._extra_thermostat_names.keys())
 
     def set_on_reconnect(self, callback):
         """
@@ -2044,16 +2034,9 @@ class WebSocketManager:
             if nid is not None:
                 hum_by_id[nid] = x
 
-        ids = set()
-        for x in cfg_list:
-            if isinstance(x, dict) and x.get("ID") is not None:
-                nid = self._norm_id(x.get("ID"))
-                if nid is not None:
-                    ids.add(nid)
-        ids.update(self._extra_thermostat_names.keys())
+        ids = set(self._extra_thermostat_names.keys())
         if not ids:
-            # Strict mode: thermostats come only from CFG_THERMOSTATS.
-            # Avoid creating fake thermostat entities from generic temperature/humidity IDs.
+            # Strict mode: thermostats are only those explicitly enabled from DOMUS UI.
             return []
 
         out = []

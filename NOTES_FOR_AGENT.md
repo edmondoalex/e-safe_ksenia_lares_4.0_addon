@@ -317,3 +317,13 @@ File toccati:
 - ksenia_lares_addon/app/debug_server.py
 - ksenia_lares_addon/app/websocketmanager.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Termostati solo da Domus attivati in UI
+- Modalita' strict completata: la lista termostati ora include solo ID Domus abilitati da UI admin (`domus_thermostats`), senza fallback automatico da `CFG_THERMOSTATS`.
+- Aggiunta potatura stato termostati non selezionati (`prune_entity_ids`) e cleanup discovery climate per rimuovere subito i termostati non piu' attivi.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.28` (richiesta utente: mostrare solo termostati attivati da Domus UI).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/app/debug_server.py
+- ksenia_lares_addon/app/websocketmanager.py
+- ksenia_lares_addon/config.yaml

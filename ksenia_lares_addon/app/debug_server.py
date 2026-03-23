@@ -429,6 +429,33 @@ class LaresState:
         if changed:
             self._publish_event({"type": "update", "meta": {"last_update": now}, "entities": changed})
 
+    def prune_entity_ids(self, entity_type: str, keep_ids) -> list[str]:
+        keep = set()
+        for raw in (keep_ids or []):
+            nid = self._norm_entity_id(raw)
+            if nid is not None:
+                keep.add(nid)
+        removed = []
+        with self._lock:
+            keys = list(self._entities.keys())
+            for key in keys:
+                ent = self._entities.get(key)
+                if not isinstance(ent, dict):
+                    continue
+                if str(ent.get("type") or "").lower() != str(entity_type or "").lower():
+                    continue
+                eid = self._norm_entity_id(ent.get("id"))
+                if eid in keep:
+                    continue
+                try:
+                    del self._entities[key]
+                    if eid is not None:
+                        removed.append(eid)
+                except Exception:
+                    pass
+            self._meta["last_update"] = time.time()
+        return sorted(set(removed), key=lambda s: int(s) if str(s).isdigit() else str(s))
+
     def _upsert(self, entity_type, entity_id, patch, now):
         if entity_id is None:
             return None

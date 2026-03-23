@@ -1151,6 +1151,29 @@ def main():
             logger.error(f"Discovery publish failed for {domain} {object_id}: {exc}")
             return False
 
+    def _clear_thermostat_discovery(ids) -> int:
+        cleared = 0
+        if not isinstance(ids, (list, tuple, set)):
+            return cleared
+        prefixes = {str(mqtt_prefix).strip(), str(mqtt_prefix_slug).strip()}
+        for raw_id in ids:
+            try:
+                tid = str(int(raw_id))
+            except Exception:
+                continue
+            for pf in prefixes:
+                if not pf:
+                    continue
+                obj_id = f"{pf}_therm_{tid}"
+                topic = f"{DISC_PREFIX}/climate/{obj_id}/config"
+                try:
+                    _log_mqtt("discovery", topic, "", True)
+                    mqttc.publish(topic, "", retain=True)
+                    cleared += 1
+                except Exception:
+                    pass
+        return cleared
+
     def publish_discovery(snapshot: dict):
         entities = snapshot.get("entities") or []
         published = 0
@@ -2188,7 +2211,26 @@ def main():
     manager.register_listener("thermostats", lambda updates: on_status_updates("thermostats", updates))
     async def _on_thermostats_cfg(updates):
         try:
-            state.apply_static_update("thermostats", updates)
+            therms = await manager.getThermostats()
+            keep_ids = []
+            if isinstance(therms, list):
+                for item in therms:
+                    if not isinstance(item, dict):
+                        continue
+                    tid = item.get("ID")
+                    if tid is None:
+                        continue
+                    try:
+                        keep_ids.append(str(int(tid)))
+                    except Exception:
+                        keep_ids.append(str(tid))
+            removed = state.prune_entity_ids("thermostats", keep_ids)
+            if isinstance(therms, list):
+                state.apply_static_update("thermostats", therms)
+            if removed:
+                cleared = _clear_thermostat_discovery(removed)
+                if cleared:
+                    logger.info("Thermostat discovery cleanup (cfg refresh): removed=%s cleared=%s", removed, cleared)
         except Exception as exc:
             logger.error(f"Debug thermostats cfg ingest error: {exc}")
 
@@ -2821,7 +2863,19 @@ def main():
                 try:
                     async def _refresh():
                         therms = await manager.getThermostats()
+                        keep_ids = []
                         if isinstance(therms, list):
+                            for item in therms:
+                                if not isinstance(item, dict):
+                                    continue
+                                tid = item.get("ID")
+                                if tid is None:
+                                    continue
+                                try:
+                                    keep_ids.append(str(int(tid)))
+                                except Exception:
+                                    keep_ids.append(str(tid))
+                            removed = state.prune_entity_ids("thermostats", keep_ids)
                             try:
                                 state.apply_static_update("thermostats", therms)
                             except Exception:
@@ -2829,6 +2883,14 @@ def main():
                             for item in therms:
                                 if isinstance(item, dict):
                                     publish("thermostats", item)
+                            if removed:
+                                cleared = _clear_thermostat_discovery(removed)
+                                if cleared:
+                                    logger.info(
+                                        "Thermostat discovery cleanup (DOMUS UI): removed=%s cleared=%s",
+                                        removed,
+                                        cleared,
+                                    )
                         publish_discovery(state.snapshot())
 
                     fut = asyncio.run_coroutine_threadsafe(_refresh(), loop)
