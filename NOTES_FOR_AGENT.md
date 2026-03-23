@@ -282,3 +282,11 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/main.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - UI: termostati strict (no ID sbagliati)
+- Backend UI (`LaresState`) reso strict per i termostati: se non ci sono ID statici noti da `CFG_THERMOSTATS`, gli update realtime `STATUS_TEMPERATURES/STATUS_HUMIDITY` non creano entita `thermostats`.
+- Gli ID non appartenenti ai termostati vengono instradati su `domus` (TEM/HUM) invece che finire in `thermostats`.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.24` (fix UI termostati errati).
+
+File toccati:
+- ksenia_lares_addon/app/debug_server.py
+- ksenia_lares_addon/config.yaml
