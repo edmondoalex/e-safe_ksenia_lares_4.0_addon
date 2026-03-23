@@ -482,6 +482,33 @@ class LaresState:
         if changed:
             self._publish_event({"type": "update", "meta": {"last_update": now}, "entities": changed})
 
+    def prune_entity_ids(self, entity_type: str, keep_ids) -> list[str]:
+        keep = set()
+        for raw in (keep_ids or []):
+            nid = self._norm_entity_id(raw)
+            if nid is not None:
+                keep.add(nid)
+        removed = []
+        with self._lock:
+            keys = list(self._entities.keys())
+            for key in keys:
+                ent = self._entities.get(key)
+                if not isinstance(ent, dict):
+                    continue
+                if str(ent.get("type") or "").lower() != str(entity_type or "").lower():
+                    continue
+                eid = self._norm_entity_id(ent.get("id"))
+                if eid in keep:
+                    continue
+                try:
+                    del self._entities[key]
+                    if eid is not None:
+                        removed.append(eid)
+                except Exception:
+                    pass
+            self._meta["last_update"] = time.time()
+        return sorted(set(removed), key=lambda s: int(s) if str(s).isdigit() else str(s))
+
     def _upsert(self, entity_type, entity_id, patch, now):
         if entity_id is None:
             return None
@@ -684,7 +711,7 @@ def _load_ui_tags(path=_UI_TAGS_PATH):
         data = {}
     if not isinstance(data, dict):
         data = {}
-    for key in ("outputs", "scenarios", "tag_styles"):
+    for key in ("outputs", "scenarios", "domus_thermostats", "tag_styles"):
         if not isinstance(data.get(key), dict):
             data[key] = {}
     # Seed default tag styles if none are configured yet (safe: user can edit/remove).
@@ -2065,6 +2092,23 @@ def render_index(snapshot):
                     f"<span class=\"ctl\">T3 <input class=\"mono\" data-key=\"{k}\" data-kind=\"t3\" style=\"width:56px\" type=\"number\" step=\"0.5\" value=\"{_html_escape(t3s)}\" "
                     f"onchange=\"setThermProfile({_html_escape(entity_id)},'T3',this.value)\"/></span>"
                 )
+        if str(entity_type).lower() == "domus":
+            dmap = ui_tags.get("domus_thermostats") if isinstance(ui_tags, dict) else {}
+            if not isinstance(dmap, dict):
+                dmap = {}
+            dentry = dmap.get(str(entity_id)) if entity_id is not None else None
+            denabled = False
+            dname = ""
+            if isinstance(dentry, dict):
+                denabled = _coerce_bool(dentry.get("enabled", True), True)
+                dname = str(dentry.get("name") or "").strip()
+            controls = (
+                f"<span class=\"ctl\">Thermostat "
+                f"<input type=\"checkbox\" id=\"domus-th-en-{_html_escape(entity_id)}\"{' checked' if denabled else ''}/></span> "
+                f"<span class=\"ctl\">Nome "
+                f"<input class=\"mono\" id=\"domus-th-name-{_html_escape(entity_id)}\" style=\"width:160px\" value=\"{_html_escape(dname)}\" placeholder=\"Nome termostato\"/></span> "
+                f"<button class=\"cmd\" onclick=\"setDomusThermostat({_html_escape(entity_id)})\">Salva</button>"
+            )
 
         if entity_type in ("outputs", "scenarios", "zones", "partitions"):
             fav_btn = (
@@ -2637,6 +2681,14 @@ def render_index(snapshot):
         const visible = visibleInput ? !!visibleInput.checked : true;
         updateRowTagSearch(type, id, tag);
         sendCmd('ui_tags', id, 'set', {{ target_type: type, tag: tag, visible: visible }});
+      }}
+
+      function setDomusThermostat(id) {{
+        const en = document.getElementById(`domus-th-en-${{id}}`);
+        const nm = document.getElementById(`domus-th-name-${{id}}`);
+        const enabled = !!(en && en.checked);
+        const name = nm ? String(nm.value || '').trim() : '';
+        sendCmd('domus_thermostat', id, 'set', {{ enabled: enabled, name: name }});
       }}
 
       function bindTagInputs() {{

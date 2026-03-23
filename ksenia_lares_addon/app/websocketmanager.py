@@ -52,6 +52,7 @@ class WebSocketManager:
         debug_thermostats: bool = False,
         output_debug_verbose: bool = False,
         reconnect_cooldown_sec: int | float = 8,
+        extra_thermostat_names: dict | None = None,
     ):
         self._ip = ip
         self._port = port
@@ -110,6 +111,79 @@ class WebSocketManager:
         self._connSecure = 0  # 0: no SSL, 1: SSL
         self._last_thermo_cfg_by_id = {}
         self._cooldown_until = 0.0
+        self._extra_thermostat_names = {}
+        if isinstance(extra_thermostat_names, dict):
+            for k, v in extra_thermostat_names.items():
+                nid = self._norm_id(k)
+                if nid is None:
+                    continue
+                name = str(v).strip() if v not in (None, "") else f"Thermostat {nid}"
+                self._extra_thermostat_names[nid] = name
+
+    def _norm_id(self, value):
+        if value is None:
+            return None
+        s = str(value).strip()
+        if not s:
+            return None
+        if s.isdigit():
+            try:
+                return str(int(s))
+            except Exception:
+                return s
+        return s
+
+    def set_extra_thermostat_names(self, names: dict | None):
+        out = {}
+        if isinstance(names, dict):
+            for k, v in names.items():
+                nid = self._norm_id(k)
+                if nid is None:
+                    continue
+                name = str(v).strip() if v not in (None, "") else f"Thermostat {nid}"
+                out[nid] = name
+        self._extra_thermostat_names = out
+
+    def get_selected_thermostat_ids(self) -> set[str]:
+        return set(self._extra_thermostat_names.keys())
+
+    def _sensor_to_thermostat_map(self) -> dict[str, str]:
+        out = {}
+        rd = self._readData if isinstance(self._readData, dict) else {}
+        for key in ("TEMPERATURES", "HUMIDITY"):
+            for item in (rd.get(key) or []):
+                if not isinstance(item, dict):
+                    continue
+                sid = self._norm_id(item.get("ID"))
+                tid = self._norm_id(item.get("ID_TH"))
+                if sid is None or tid is None:
+                    continue
+                out[sid] = tid
+        return out
+
+    def normalize_thermostat_update(self, item: dict) -> dict | None:
+        if not isinstance(item, dict):
+            return None
+        selected = self.get_selected_thermostat_ids()
+        if not selected:
+            return None
+        xid = self._norm_id(item.get("ID"))
+        if xid is None:
+            return None
+        s2t = self._sensor_to_thermostat_map()
+        tid = s2t.get(xid)
+        if tid not in selected:
+            tid = xid if xid in selected else None
+        if tid is None:
+            return None
+        out = dict(item)
+        out["ID"] = tid
+        tval = out.get("TEMP")
+        if tval in (None, ""):
+            tval = out.get("TEM")
+        if tval not in (None, ""):
+            out["TEMP"] = tval
+        return out
 
     async def _notify_listeners(self, entity_type: str, payload):
         callbacks = self.listeners.get(entity_type, [])
@@ -2147,6 +2221,9 @@ class WebSocketManager:
         if not self._readData and not self._realtimeInitialData:
             self._logger.error("Initial data not received in getThermostats")
             return []
+        selected_ids = self.get_selected_thermostat_ids()
+        if not selected_ids:
+            return []
 
         cfg_list = (self._readData or {}).get("CFG_THERMOSTATS") or []
         if not isinstance(cfg_list, list):
@@ -2182,18 +2259,19 @@ class WebSocketManager:
         if not isinstance(hums, list):
             hums = []
 
-        temp_by_id = {str(x.get("ID")): x for x in temps if isinstance(x, dict) and x.get("ID") is not None}
-        hum_by_id = {str(x.get("ID")): x for x in hums if isinstance(x, dict) and x.get("ID") is not None}
-
-        ids = set()
-        for x in cfg_list:
-            if isinstance(x, dict) and x.get("ID") is not None:
-                ids.add(str(x.get("ID")))
-        ids.update(temp_by_id.keys())
-        ids.update(hum_by_id.keys())
+        temp_by_id = {}
+        for x in temps:
+            norm = self.normalize_thermostat_update(x)
+            if isinstance(norm, dict) and norm.get("ID") is not None:
+                temp_by_id[str(norm.get("ID"))] = norm
+        hum_by_id = {}
+        for x in hums:
+            norm = self.normalize_thermostat_update(x)
+            if isinstance(norm, dict) and norm.get("ID") is not None:
+                hum_by_id[str(norm.get("ID"))] = norm
 
         out = []
-        for tid in sorted(ids, key=lambda s: int(s) if str(s).isdigit() else str(s)):
+        for tid in sorted(selected_ids, key=lambda s: int(s) if str(s).isdigit() else str(s)):
             cfg = next((x for x in cfg_list if isinstance(x, dict) and str(x.get("ID")) == tid), {}) or {}
             rt = temp_by_id.get(tid) or {}
             hum = hum_by_id.get(tid) or {}
@@ -2204,6 +2282,8 @@ class WebSocketManager:
                 merged.update(rt)
             if isinstance(hum, dict):
                 merged.update(hum)
+            if "DES" not in merged and tid in self._extra_thermostat_names:
+                merged["DES"] = self._extra_thermostat_names.get(tid)
             if "DES" not in merged and tid in name_by_id:
                 merged["DES"] = name_by_id.get(tid)
             out.append(merged)

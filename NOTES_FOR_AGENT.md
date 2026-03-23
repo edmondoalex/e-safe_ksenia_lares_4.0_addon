@@ -364,3 +364,13 @@ File toccati:
 - ksenia_lares_addon/app/www/mdi/shield-lock.svg
 - ksenia_lares_addon/app/www/mdi/window-shutter.svg
 - ksenia_lares_addon/tools/sync-samba-to-pc.ps1
+## 2026-03-23 - Domus: toggle termostati da UI admin (solo selezionati)
+- Aggiunta gestione `domus_thermostat` da UI admin: su righe Domus ora c'e' checkbox Thermostat + nome + Salva, con persistenza in `/data/ui_tags.json` (`domus_thermostats`).
+- La lista termostati (UI + MQTT) ora viene filtrata ai soli Domus attivati: mapping Domus -> termostato reale via `ID_TH`, filtro realtime e potatura entita/discovery climate non selezionate.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.61` (richiesta utente: mostrare solo termostati attivati da Domus in UI admin).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/app/websocketmanager.py
+- ksenia_lares_addon/app/debug_server.py
+- ksenia_lares_addon/config.yaml

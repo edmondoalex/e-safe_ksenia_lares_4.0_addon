@@ -1588,6 +1588,29 @@ def main():
             logger.error(f"Discovery publish failed for {domain} {object_id}: {exc}")
             return False
 
+    def _clear_thermostat_discovery(ids) -> int:
+        cleared = 0
+        if not isinstance(ids, (list, tuple, set)):
+            return cleared
+        prefixes = {str(mqtt_prefix).strip(), str(mqtt_prefix_slug).strip()}
+        for raw_id in ids:
+            try:
+                tid = str(int(raw_id))
+            except Exception:
+                continue
+            for pf in prefixes:
+                if not pf:
+                    continue
+                obj_id = f"{pf}_therm_{tid}"
+                topic = f"{DISC_PREFIX}/climate/{obj_id}/config"
+                try:
+                    _log_mqtt("discovery", topic, "", True)
+                    mqttc.publish(topic, "", retain=True)
+                    cleared += 1
+                except Exception:
+                    pass
+        return cleared
+
     def publish_discovery(snapshot: dict):
         entities = snapshot.get("entities") or []
         published = 0
@@ -2531,6 +2554,20 @@ def main():
                         logger.info(f"WS1 partitions update: {brief}")
                 except Exception:
                     pass
+            if entity_type == "thermostats" and isinstance(updates, list):
+                norm_by_id = {}
+                for item in updates:
+                    try:
+                        norm = manager.normalize_thermostat_update(item)
+                    except Exception:
+                        norm = None
+                    if not isinstance(norm, dict):
+                        continue
+                    tid = norm.get("ID")
+                    if tid is None:
+                        continue
+                    norm_by_id[str(tid)] = norm
+                updates = list(norm_by_id.values())
             if entity_type in ("schedulers",):
                 state.apply_static_update(entity_type, updates)
             else:
@@ -2693,6 +2730,7 @@ def main():
         debug_thermostats=debug_thermostats,
         output_debug_verbose=output_debug_verbose,
         reconnect_cooldown_sec=ws_reconnect_cooldown_sec,
+        extra_thermostat_names={},
     )
     try:
         manager_ref["manager"] = manager
@@ -2711,6 +2749,12 @@ def main():
             state.set_ws1_status(True)
         except Exception:
             pass
+        try:
+            latest_overrides = _domus_thermostat_overrides_from_data(_load_ui_tags_file())
+            resolved_overrides = _resolve_domus_thermostat_overrides(latest_overrides, read_data)
+            manager.set_extra_thermostat_names(resolved_overrides)
+        except Exception as exc:
+            logger.error("resolve/set domus thermostat overrides failed on reconnect: %s", exc)
         try:
             state.set_initial_data(read_data, realtime_initial)
         except Exception as exc:
@@ -2843,7 +2887,26 @@ def main():
     manager.register_listener("thermostats", lambda updates: on_status_updates("thermostats", updates))
     async def _on_thermostats_cfg(updates):
         try:
-            state.apply_static_update("thermostats", updates)
+            therms = await manager.getThermostats()
+            keep_ids = []
+            if isinstance(therms, list):
+                for item in therms:
+                    if not isinstance(item, dict):
+                        continue
+                    tid = item.get("ID")
+                    if tid is None:
+                        continue
+                    try:
+                        keep_ids.append(str(int(tid)))
+                    except Exception:
+                        keep_ids.append(str(tid))
+            removed = state.prune_entity_ids("thermostats", keep_ids)
+            if isinstance(therms, list):
+                state.apply_static_update("thermostats", therms)
+            if removed:
+                cleared = _clear_thermostat_discovery(removed)
+                if cleared:
+                    logger.info("Thermostat discovery cleanup (cfg refresh): removed=%s cleared=%s", removed, cleared)
         except Exception as exc:
             logger.error(f"Debug thermostats cfg ingest error: {exc}")
 
@@ -3002,6 +3065,7 @@ def main():
                 return {
                     "outputs": {},
                     "scenarios": {},
+                    "domus_thermostats": {},
                     "tag_styles": {
                         "Cancelli": {"icon_off": "mdiGate", "icon_on": "mdiGate", "color_off": "#a9b1c3", "color_on": "#1ed760"},
                         "barre": {"icon_off": "mdiBoomGate", "icon_on": "mdiBoomGate", "color_off": "#a9b1c3", "color_on": "#ffb020"},
@@ -3052,7 +3116,7 @@ def main():
                 raw = {}
             if not isinstance(raw, dict):
                 raw = {}
-            for key in ("outputs", "scenarios", "tag_styles"):
+            for key in ("outputs", "scenarios", "domus_thermostats", "tag_styles"):
                 if not isinstance(raw.get(key), dict):
                     raw[key] = {}
             # Seed defaults if tag_styles is still empty (user can overwrite from UI).
@@ -3111,6 +3175,81 @@ def main():
                 )
             except Exception as exc:
                 logger.error(f"Impossibile salvare ui_tags: {exc}")
+
+        def _domus_thermostat_overrides_from_data(data):
+            out = {}
+            if not isinstance(data, dict):
+                return out
+            raw = data.get("domus_thermostats")
+            if not isinstance(raw, dict):
+                return out
+            for k, v in raw.items():
+                try:
+                    sid = str(int(str(k).strip()))
+                except Exception:
+                    continue
+                if isinstance(v, dict):
+                    enabled = _coerce_bool(v.get("enabled", True), True)
+                    if not enabled:
+                        continue
+                    name = str(v.get("name") or "").strip() or f"Thermostat {sid}"
+                else:
+                    name = str(v or "").strip() or f"Thermostat {sid}"
+                out[sid] = name
+            return out
+
+        def _resolve_domus_thermostat_overrides(overrides, read_data):
+            out = {}
+            if not isinstance(overrides, dict) or not overrides:
+                return out
+            rd = read_data if isinstance(read_data, dict) else {}
+
+            def _nid(v):
+                try:
+                    return str(int(str(v).strip()))
+                except Exception:
+                    return None
+
+            sensor_to_th = {}
+            for key in ("TEMPERATURES", "HUMIDITY"):
+                for item in (rd.get(key) or []):
+                    if not isinstance(item, dict):
+                        continue
+                    sid = _nid(item.get("ID"))
+                    thid = _nid(item.get("ID_TH"))
+                    if sid and thid:
+                        sensor_to_th[sid] = thid
+
+            cfg_ids = set()
+            for item in (rd.get("CFG_THERMOSTATS") or []):
+                if isinstance(item, dict):
+                    tid = _nid(item.get("ID"))
+                    if tid:
+                        cfg_ids.add(tid)
+
+            unresolved = []
+            for sid, name in overrides.items():
+                sid_n = _nid(sid)
+                if not sid_n:
+                    continue
+                tid = sensor_to_th.get(sid_n)
+                if not tid and sid_n in cfg_ids:
+                    tid = sid_n
+                if not tid:
+                    unresolved.append(sid_n)
+                    continue
+                out[tid] = str(name or "").strip() or f"Thermostat {tid}"
+            if unresolved:
+                logger.info("DOMUS thermostat IDs senza mapping reale (ignorati): %s", sorted(unresolved, key=int))
+            return out
+
+        try:
+            _ui_tags_boot = _load_ui_tags_file()
+            _boot_overrides = _domus_thermostat_overrides_from_data(_ui_tags_boot)
+            _boot_resolved = _resolve_domus_thermostat_overrides(_boot_overrides, getattr(manager, "_readData", None))
+            manager.set_extra_thermostat_names(_boot_resolved)
+        except Exception as exc:
+            logger.error("Init domus thermostat overrides failed: %s", exc)
 
         async def _open_command_ws(pin: str) -> tuple[object, int, bool]:
             """
@@ -3509,12 +3648,14 @@ def main():
 
                     def _obj_ids(pf: str):
                         out = []
+                        all_ids = set()
                         for e in ents:
                             et = str(e.get("type") or "").lower()
                             try:
                                 eid = str(int(e.get("id")))
                             except Exception:
                                 continue
+                            all_ids.add(eid)
                             if et == "zones":
                                 out.append(("binary_sensor", f"{pf}_zone_{eid}"))
                                 out.append(("binary_sensor", f"{pf}_zone_{eid}_alarm"))
@@ -3550,6 +3691,9 @@ def main():
                                     out.append(("sensor", f"{pf}_sys_{eid}_{key}"))
                             elif et == "schedulers":
                                 out.append(("switch", f"{pf}_sched_{eid}"))
+                        # Legacy cleanup: remove any stale thermostat discovery IDs.
+                        for any_id in all_ids:
+                            out.append(("climate", f"{pf}_therm_{any_id}"))
                         # Panel buttons (no entity list)
                         out.append(("button", f"{pf}_panel_clear_memories"))
                         out.append(("button", f"{pf}_panel_clear_communications"))
@@ -3587,6 +3731,78 @@ def main():
                     return {"ok": True, "published": published, "entities": len(ents)}
                 except Exception as exc:
                     return {"ok": False, "error": str(exc)}
+
+            if entity_type == "domus_thermostat":
+                if action not in ("set", "update", "delete"):
+                    return {"ok": False, "error": "unsupported domus_thermostat action"}
+                entity_id = payload.get("id")
+                try:
+                    entity_id_int = int(entity_id)
+                except Exception:
+                    return {"ok": False, "error": "invalid id"}
+                enabled = True
+                name = ""
+                if isinstance(value, dict):
+                    enabled = _coerce_bool(value.get("enabled", True), True)
+                    name = str(value.get("name") or "").strip()
+                elif action == "delete":
+                    enabled = False
+                with ui_tags_lock:
+                    data = _load_ui_tags_file()
+                    m = data.get("domus_thermostats")
+                    if not isinstance(m, dict):
+                        m = {}
+                        data["domus_thermostats"] = m
+                    key = str(entity_id_int)
+                    if (not enabled) or action == "delete":
+                        m.pop(key, None)
+                    else:
+                        m[key] = {"enabled": True, "name": name}
+                    _save_ui_tags_file(data)
+                    overrides = _domus_thermostat_overrides_from_data(data)
+                    resolved_overrides = _resolve_domus_thermostat_overrides(overrides, getattr(manager, "_readData", None))
+                try:
+                    manager.set_extra_thermostat_names(resolved_overrides)
+                except Exception as exc:
+                    logger.error("set_extra_thermostat_names failed: %s", exc)
+                try:
+                    async def _refresh():
+                        therms = await manager.getThermostats()
+                        keep_ids = []
+                        if isinstance(therms, list):
+                            for item in therms:
+                                if not isinstance(item, dict):
+                                    continue
+                                tid = item.get("ID")
+                                if tid is None:
+                                    continue
+                                try:
+                                    keep_ids.append(str(int(tid)))
+                                except Exception:
+                                    keep_ids.append(str(tid))
+                            removed = state.prune_entity_ids("thermostats", keep_ids)
+                            try:
+                                state.apply_static_update("thermostats", therms)
+                            except Exception:
+                                pass
+                            for item in therms:
+                                if isinstance(item, dict):
+                                    publish("thermostats", item)
+                            if removed:
+                                cleared = _clear_thermostat_discovery(removed)
+                                if cleared:
+                                    logger.info(
+                                        "Thermostat discovery cleanup (DOMUS UI): removed=%s cleared=%s",
+                                        removed,
+                                        cleared,
+                                    )
+                        publish_discovery(state.snapshot())
+
+                    fut = asyncio.run_coroutine_threadsafe(_refresh(), loop)
+                    fut.result(timeout=20)
+                except Exception as exc:
+                    logger.error("domus_thermostat refresh error: %s", exc)
+                return {"ok": True, "id": entity_id_int, "enabled": bool(enabled and action != "delete"), "name": name}
 
             entity_id = payload.get("id")
 
