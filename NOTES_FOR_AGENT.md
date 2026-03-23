@@ -250,3 +250,11 @@ File toccati:
 - ksenia_lares_addon/app/debug_server.py
 - ksenia_lares_addon/app/main.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Domus temperatura: publish diretto su topic dedicati
+- I sensori Domus (temperatura/umidita/luminosita) ora leggono da topic dedicati (`.../domus/<id>/temperature|humidity|illuminance`) invece di template su JSON complesso.
+- Durante publish `domus`, l'add-on estrae e pubblica in retain i valori da `DOMUS.TEM/TEMP`, `DOMUS.HUM`, `DOMUS.LHT`.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.20` (fix temperatura Domus non valorizzata in HA).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/config.yaml

@@ -903,6 +903,31 @@ def main():
                 sta = str(payload.get("STA") or "").upper()
                 _log_mqtt("publish", f"{DISC_PREFIX}/binary_sensor/{mqtt_prefix_slug}_zone_{entity_id}/state", sta, True)
                 mqttc.publish(f"{DISC_PREFIX}/binary_sensor/{mqtt_prefix_slug}_zone_{entity_id}/state", sta, retain=True)
+            elif et == "domus":
+                dom = payload.get("DOMUS") if isinstance(payload.get("DOMUS"), dict) else {}
+                tval = dom.get("TEM")
+                if tval in (None, ""):
+                    tval = dom.get("TEMP")
+                if tval in (None, ""):
+                    tval = payload.get("TEM")
+                if tval in (None, ""):
+                    tval = payload.get("TEMP")
+                hval = dom.get("HUM")
+                if hval in (None, ""):
+                    hval = payload.get("HUM")
+                lval = dom.get("LHT")
+                if lval in (None, ""):
+                    lval = payload.get("LHT")
+                for suffix, val in (
+                    ("temperature", tval),
+                    ("humidity", hval),
+                    ("illuminance", lval),
+                ):
+                    if val in (None, ""):
+                        continue
+                    tpc = f"{mqtt_prefix}/domus/{entity_id}/{suffix}"
+                    _log_mqtt("publish", tpc, val, True)
+                    mqttc.publish(tpc, str(val), retain=True)
             elif et == "partitions":
                 arm_raw = payload.get("ARM")
                 if isinstance(arm_raw, dict):
@@ -1315,8 +1340,7 @@ def main():
             payload_temp = {
                 "name": f"{name} Temperatura",
                 "unique_id": obj_temp,
-                "state_topic": state_topic,
-                "value_template": "{{ value_json.get('DOMUS', {}).get('TEM', value_json.get('DOMUS', {}).get('TEMP', value_json.get('TEM', value_json.get('TEMP', '')))) }}",
+                "state_topic": f"{mqtt_prefix}/domus/{eid}/temperature",
                 "unit_of_measurement": "C",
                 "device_class": "temperature",
                 "default_entity_id": f"sensor.{obj_temp}",
@@ -1329,8 +1353,7 @@ def main():
             payload_hum = {
                 "name": f"{name} Umidita",
                 "unique_id": obj_hum,
-                "state_topic": state_topic,
-                "value_template": "{{ value_json.get('DOMUS', {}).get('HUM', value_json.get('HUM', '')) }}",
+                "state_topic": f"{mqtt_prefix}/domus/{eid}/humidity",
                 "unit_of_measurement": "%",
                 "device_class": "humidity",
                 "default_entity_id": f"sensor.{obj_hum}",
@@ -1343,8 +1366,7 @@ def main():
             payload_lux = {
                 "name": f"{name} Luminosita",
                 "unique_id": obj_lux,
-                "state_topic": state_topic,
-                "value_template": "{{ value_json.get('DOMUS', {}).get('LHT', value_json.get('LHT', '')) }}",
+                "state_topic": f"{mqtt_prefix}/domus/{eid}/illuminance",
                 "unit_of_measurement": "lx",
                 "device_class": "illuminance",
                 "default_entity_id": f"sensor.{obj_lux}",
