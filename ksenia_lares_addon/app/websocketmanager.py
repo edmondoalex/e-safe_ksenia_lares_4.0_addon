@@ -5,6 +5,7 @@ Huge thanks to @realnot16 for these functions!
 import asyncio
 import websockets
 import json, time
+import os
 import ssl
 import copy
 import inspect
@@ -146,28 +147,46 @@ class WebSocketManager:
 
     def _load_ui_domus_thermostats(self, path="/data/ui_tags.json") -> dict[str, str]:
         out = {}
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                raw = json.load(f) or {}
-        except Exception:
-            return out
-        if not isinstance(raw, dict):
-            return out
-        m = raw.get("domus_thermostats")
-        if not isinstance(m, dict):
-            return out
-        for k, v in m.items():
-            nid = self._norm_id(k)
-            if nid is None:
+        candidates = []
+        env_path = str(os.getenv("KS_UI_TAGS_PATH", "") or "").strip()
+        if env_path:
+            candidates.append(env_path)
+        if path:
+            candidates.append(path)
+        candidates.extend(("/data/ui_tags.json", "/config/ui_tags.json", "./ui_tags.json"))
+        seen = set()
+        ordered = []
+        for cand in candidates:
+            sc = str(cand or "").strip()
+            if not sc or sc in seen:
                 continue
-            enabled = True
-            name = ""
-            if isinstance(v, dict):
-                enabled = str(v.get("enabled", True)).strip().lower() not in ("0", "false", "no", "off")
-                name = str(v.get("name") or "").strip()
-            if not enabled:
+            seen.add(sc)
+            ordered.append(sc)
+        for cand in ordered:
+            try:
+                with open(cand, "r", encoding="utf-8") as f:
+                    raw = json.load(f) or {}
+            except Exception:
                 continue
-            out[nid] = name or f"Thermostat {nid}"
+            if not isinstance(raw, dict):
+                continue
+            m = raw.get("domus_thermostats")
+            if not isinstance(m, dict):
+                continue
+            for k, v in m.items():
+                nid = self._norm_id(k)
+                if nid is None:
+                    continue
+                enabled = True
+                name = ""
+                if isinstance(v, dict):
+                    enabled = str(v.get("enabled", True)).strip().lower() not in ("0", "false", "no", "off")
+                    name = str(v.get("name") or "").strip()
+                if not enabled:
+                    continue
+                out[nid] = name or f"Thermostat {nid}"
+            if out:
+                break
         return out
 
     def _effective_selected_and_names(self) -> tuple[set[str], dict[str, str]]:

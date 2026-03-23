@@ -63,6 +63,11 @@ _ASSET_MAP = {
     "e-safe_scr": "e-safe_scr.png",
 }
 _UI_TAGS_PATH = "/data/ui_tags.json"
+_UI_TAGS_FALLBACK_PATHS = (
+    "/data/ui_tags.json",
+    "/config/ui_tags.json",
+    "./ui_tags.json",
+)
 _UI_THERM_NAMES_PATH = "/data/ui_thermostat_names.json"
 _UI_THERM_NAMES_CACHE = {"ts": 0.0, "data": {}}
 _UI_FAVORITES_PATH = "/data/ui_favorites.json"
@@ -760,11 +765,37 @@ def _coerce_bool(value, default=True):
     return bool(default)
 
 
+def _resolve_ui_tags_read_path(path=_UI_TAGS_PATH):
+    candidates = []
+    env_path = str(os.getenv("KS_UI_TAGS_PATH", "") or "").strip()
+    if env_path:
+        candidates.append(env_path)
+    if path:
+        candidates.append(path)
+    candidates.extend(_UI_TAGS_FALLBACK_PATHS)
+    seen = set()
+    ordered = []
+    for cand in candidates:
+        sc = str(cand or "").strip()
+        if not sc or sc in seen:
+            continue
+        seen.add(sc)
+        ordered.append(sc)
+    for cand in ordered:
+        try:
+            if os.path.exists(cand):
+                return cand
+        except Exception:
+            continue
+    return ordered[0] if ordered else _UI_TAGS_PATH
+
+
 def _load_ui_tags(path=_UI_TAGS_PATH):
     data = {}
+    read_path = _resolve_ui_tags_read_path(path)
     try:
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as handle:
+        if os.path.exists(read_path):
+            with open(read_path, "r", encoding="utf-8") as handle:
                 data = json.load(handle) or {}
     except Exception:
         data = {}

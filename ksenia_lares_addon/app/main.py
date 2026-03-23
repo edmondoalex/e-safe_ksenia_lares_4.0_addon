@@ -3087,7 +3087,27 @@ def main():
         import threading
 
         ui_tags_lock = threading.Lock()
-        ui_tags_path = Path("/data/ui_tags.json")
+        _ui_tags_candidates = []
+        _ui_tags_env = str(os.getenv("KS_UI_TAGS_PATH", "") or "").strip()
+        if _ui_tags_env:
+            _ui_tags_candidates.append(Path(_ui_tags_env))
+        ui_tags_persistent_path = Path("/data/ui_tags.json")
+        _ui_tags_candidates.extend(
+            [
+                ui_tags_persistent_path,
+                Path("/config/ui_tags.json"),
+                Path("./ui_tags.json"),
+            ]
+        )
+        _seen_ui_tags = set()
+        ui_tags_candidates = []
+        for _cand in _ui_tags_candidates:
+            _sc = str(_cand)
+            if (not _sc) or (_sc in _seen_ui_tags):
+                continue
+            _seen_ui_tags.add(_sc)
+            ui_tags_candidates.append(_cand)
+        ui_tags_path = ui_tags_candidates[0] if ui_tags_candidates else Path("/data/ui_tags.json")
 
         def _coerce_bool(value, default=True):
             if isinstance(value, bool):
@@ -3099,8 +3119,18 @@ def main():
                 return False
             return bool(default)
 
+        def _resolve_ui_tags_read_path():
+            for cand in ui_tags_candidates:
+                try:
+                    if cand.exists():
+                        return cand
+                except Exception:
+                    continue
+            return ui_tags_path
+
         def _load_ui_tags_file():
-            if not ui_tags_path.exists():
+            read_path = _resolve_ui_tags_read_path()
+            if not read_path.exists():
                 return {
                     "outputs": {},
                     "scenarios": {},
@@ -3150,7 +3180,7 @@ def main():
                     },
                 }
             try:
-                raw = json.loads(ui_tags_path.read_text(encoding="utf-8")) or {}
+                raw = json.loads(read_path.read_text(encoding="utf-8")) or {}
             except Exception:
                 raw = {}
             if not isinstance(raw, dict):
@@ -3206,14 +3236,28 @@ def main():
             return raw
 
         def _save_ui_tags_file(data):
-            try:
-                ui_tags_path.parent.mkdir(parents=True, exist_ok=True)
-                ui_tags_path.write_text(
-                    json.dumps(data, ensure_ascii=False, indent=2),
-                    encoding="utf-8",
-                )
-            except Exception as exc:
-                logger.error(f"Impossibile salvare ui_tags: {exc}")
+            targets = []
+            # Always persist to /data first: survives reboot and add-on updates.
+            targets.append(ui_tags_persistent_path)
+            for t in ui_tags_candidates or [ui_tags_path]:
+                if str(t) == str(ui_tags_persistent_path):
+                    continue
+                targets.append(t)
+            saved = False
+            last_exc = None
+            for idx, target in enumerate(targets):
+                try:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(
+                        json.dumps(data, ensure_ascii=False, indent=2),
+                        encoding="utf-8",
+                    )
+                    if idx == 0:
+                        saved = True
+                except Exception as exc:
+                    last_exc = exc
+            if (not saved) and last_exc is not None:
+                logger.error(f"Impossibile salvare ui_tags: {last_exc}")
 
         def _domus_thermostat_overrides_from_data(data):
             out = {}

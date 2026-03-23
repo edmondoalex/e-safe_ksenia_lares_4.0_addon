@@ -208,6 +208,24 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/debug_server.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Fallback multi-path per ui_tags (persistenza selezione termostati)
+- Aggiunta risoluzione multi-path di `ui_tags.json` con fallback (`KS_UI_TAGS_PATH`, `/data/ui_tags.json`, `/config/ui_tags.json`, `./ui_tags.json`) in `main.py`, `debug_server.py` e `websocketmanager.py`.
+- Selezioni `domus_thermostats` ora lette anche quando il file non e' in `/data`, evitando lista termostati vuota in `/api/entities` per mismatch path runtime.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.69` (fix: termostati assenti nonostante `domus_thermostats` valorizzato).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/app/debug_server.py
+- ksenia_lares_addon/app/websocketmanager.py
+- ksenia_lares_addon/config.yaml
+## 2026-03-23 - Persistenza forzata ui_tags su /data
+- Il salvataggio di `ui_tags.json` ora scrive sempre prima su `/data/ui_tags.json` (persistente in Home Assistant), poi replica sugli altri path candidati.
+- In questo modo le selezioni `domus_thermostats` restano persistenti dopo riavvii e aggiornamenti addon.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.70` (hardening persistenza configurazione UI).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/config.yaml
 ## 2026-03-23 - Cleanup discovery termostati legacy
 - Esteso `cleanup_discovery` per cancellare anche topic climate legacy `*_therm_<id>` su tutti gli ID snapshot (non solo sui termostati correnti), così rimuove i termostati rimasti da vecchia classificazione DOMUS.
 - Nessun cambio a `unique_id` attuali: fix solo di pulizia retained MQTT discovery.
