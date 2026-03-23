@@ -2092,6 +2092,12 @@ def main():
         except Exception:
             pass
         try:
+            latest_overrides = _domus_thermostat_overrides_from_data(_load_ui_tags_file())
+            resolved_overrides = _resolve_domus_thermostat_overrides(latest_overrides, read_data)
+            manager.set_extra_thermostat_names(resolved_overrides)
+        except Exception as exc:
+            logger.error("resolve/set domus thermostat overrides failed on reconnect: %s", exc)
+        try:
             state.set_initial_data(read_data, realtime_initial)
         except Exception as exc:
             logger.error(f"Debug initial ingest error (reconnect): {exc}")
@@ -2522,6 +2528,58 @@ def main():
                 out[sid] = name
             return out
 
+        def _resolve_domus_thermostat_overrides(overrides, read_data):
+            """
+            Convert UI-selected DOMUS IDs -> real thermostat IDs used by CFG_THERMOSTATS.
+            Preference:
+            1) TEMPERATURES/HUMIDITY entry with ID_TH mapped from selected DOMUS sensor ID
+            2) direct match when selected ID is already a thermostat CFG ID
+            """
+            out = {}
+            if not isinstance(overrides, dict) or not overrides:
+                return out
+            rd = read_data if isinstance(read_data, dict) else {}
+
+            def _nid(v):
+                try:
+                    return str(int(str(v).strip()))
+                except Exception:
+                    return None
+
+            sensor_to_th = {}
+            for key in ("TEMPERATURES", "HUMIDITY"):
+                for item in (rd.get(key) or []):
+                    if not isinstance(item, dict):
+                        continue
+                    sid = _nid(item.get("ID"))
+                    thid = _nid(item.get("ID_TH"))
+                    if sid and thid:
+                        sensor_to_th[sid] = thid
+
+            cfg_ids = set()
+            for item in (rd.get("CFG_THERMOSTATS") or []):
+                if isinstance(item, dict):
+                    tid = _nid(item.get("ID"))
+                    if tid:
+                        cfg_ids.add(tid)
+
+            unresolved = []
+            for sid, name in overrides.items():
+                sid_n = _nid(sid)
+                if not sid_n:
+                    continue
+                tid = sensor_to_th.get(sid_n)
+                if not tid and sid_n in cfg_ids:
+                    tid = sid_n
+                if not tid:
+                    unresolved.append(sid_n)
+                    continue
+                out[tid] = str(name or "").strip() or f"Thermostat {tid}"
+
+            if unresolved:
+                logger.info("DOMUS thermostat IDs senza mapping reale (ignorati): %s", sorted(unresolved, key=int))
+            return out
+
         async def _open_command_ws(pin: str) -> tuple[object, int, bool]:
             """
             Open the dedicated command websocket (WS2) with bounded timeouts.
@@ -2856,8 +2914,9 @@ def main():
                         m[key] = {"enabled": True, "name": name}
                     _save_ui_tags_file(data)
                     overrides = _domus_thermostat_overrides_from_data(data)
+                    resolved_overrides = _resolve_domus_thermostat_overrides(overrides, getattr(manager, "_readData", None))
                 try:
-                    manager.set_extra_thermostat_names(overrides)
+                    manager.set_extra_thermostat_names(resolved_overrides)
                 except Exception as exc:
                     logger.error("set_extra_thermostat_names failed: %s", exc)
                 try:

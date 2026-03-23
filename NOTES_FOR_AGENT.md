@@ -327,3 +327,11 @@ File toccati:
 - ksenia_lares_addon/app/debug_server.py
 - ksenia_lares_addon/app/websocketmanager.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Setpoint termostato da UI: mapping DOMUS -> ID termostato reale
+- Corretto il mapping dei termostati attivati da Domus: ora gli ID selezionati in UI vengono risolti agli ID reali `CFG_THERMOSTATS` usando `ID_TH` da `TEMPERATURES/HUMIDITY` (con fallback su match diretto CFG).
+- Questo evita scritture setpoint verso ID Domus non validi e ripristina l'aggiornamento setpoint sulla centrale Ksenia.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.29` (bugfix comando setpoint UI).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/config.yaml
