@@ -274,3 +274,11 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/websocketmanager.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-23 - Domus: sensori pubblicati solo se presenti
+- Discovery Domus resa condizionale: temperatura/umidita/luminosita vengono create solo se il valore e' realmente presente nel payload dell'entita (evita entita inutili per Domus senza funzione specifica).
+- Mantiene il sensore base stato Domus per diagnostica (`STA`, es. `IL`).
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.23` (allineamento Domus con funzioni effettivamente disponibili).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/config.yaml

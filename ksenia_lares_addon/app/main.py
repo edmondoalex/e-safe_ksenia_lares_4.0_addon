@@ -1340,6 +1340,15 @@ def main():
             name = st.get("DES") or e.get("name") or f"Domus {eid}"
             obj_id = f"{mqtt_prefix_slug}_domus_{eid}"
             state_topic = f"{mqtt_prefix}/domus/{eid}"
+            rt = e.get("realtime") if isinstance(e.get("realtime"), dict) else {}
+            dom_rt = rt.get("DOMUS") if isinstance(rt.get("DOMUS"), dict) else {}
+
+            def _present(value):
+                return value not in (None, "", "NA")
+
+            has_temp = _present(dom_rt.get("TEM")) or _present(dom_rt.get("TEMP")) or _present(rt.get("TEM")) or _present(rt.get("TEMP"))
+            has_hum = _present(dom_rt.get("HUM")) or _present(rt.get("HUM"))
+            has_lux = _present(dom_rt.get("LHT")) or _present(rt.get("LHT"))
             payload = {
                 "name": name,
                 "unique_id": obj_id,
@@ -1352,44 +1361,47 @@ def main():
             payload = _apply_device(payload, "domus")
             if _disc_publish("sensor", obj_id, payload):
                 published += 1
-            obj_temp = f"{mqtt_prefix_slug}_domus_{eid}_temperature"
-            payload_temp = {
-                "name": f"{name} Temperatura",
-                "unique_id": obj_temp,
-                "state_topic": f"{mqtt_prefix}/domus/{eid}/temperature",
-                "unit_of_measurement": "°C",
-                "device_class": "temperature",
-                "default_entity_id": f"sensor.{obj_temp}",
-            }
-            payload_temp = _apply_device(payload_temp, "domus")
-            if _disc_publish("sensor", obj_temp, payload_temp):
-                published += 1
+            if has_temp:
+                obj_temp = f"{mqtt_prefix_slug}_domus_{eid}_temperature"
+                payload_temp = {
+                    "name": f"{name} Temperatura",
+                    "unique_id": obj_temp,
+                    "state_topic": f"{mqtt_prefix}/domus/{eid}/temperature",
+                    "unit_of_measurement": "°C",
+                    "device_class": "temperature",
+                    "default_entity_id": f"sensor.{obj_temp}",
+                }
+                payload_temp = _apply_device(payload_temp, "domus")
+                if _disc_publish("sensor", obj_temp, payload_temp):
+                    published += 1
 
-            obj_hum = f"{mqtt_prefix_slug}_domus_{eid}_humidity"
-            payload_hum = {
-                "name": f"{name} Umidita",
-                "unique_id": obj_hum,
-                "state_topic": f"{mqtt_prefix}/domus/{eid}/humidity",
-                "unit_of_measurement": "%",
-                "device_class": "humidity",
-                "default_entity_id": f"sensor.{obj_hum}",
-            }
-            payload_hum = _apply_device(payload_hum, "domus")
-            if _disc_publish("sensor", obj_hum, payload_hum):
-                published += 1
+            if has_hum:
+                obj_hum = f"{mqtt_prefix_slug}_domus_{eid}_humidity"
+                payload_hum = {
+                    "name": f"{name} Umidita",
+                    "unique_id": obj_hum,
+                    "state_topic": f"{mqtt_prefix}/domus/{eid}/humidity",
+                    "unit_of_measurement": "%",
+                    "device_class": "humidity",
+                    "default_entity_id": f"sensor.{obj_hum}",
+                }
+                payload_hum = _apply_device(payload_hum, "domus")
+                if _disc_publish("sensor", obj_hum, payload_hum):
+                    published += 1
 
-            obj_lux = f"{mqtt_prefix_slug}_domus_{eid}_illuminance"
-            payload_lux = {
-                "name": f"{name} Luminosita",
-                "unique_id": obj_lux,
-                "state_topic": f"{mqtt_prefix}/domus/{eid}/illuminance",
-                "unit_of_measurement": "lx",
-                "device_class": "illuminance",
-                "default_entity_id": f"sensor.{obj_lux}",
-            }
-            payload_lux = _apply_device(payload_lux, "domus")
-            if _disc_publish("sensor", obj_lux, payload_lux):
-                published += 1
+            if has_lux:
+                obj_lux = f"{mqtt_prefix_slug}_domus_{eid}_illuminance"
+                payload_lux = {
+                    "name": f"{name} Luminosita",
+                    "unique_id": obj_lux,
+                    "state_topic": f"{mqtt_prefix}/domus/{eid}/illuminance",
+                    "unit_of_measurement": "lx",
+                    "device_class": "illuminance",
+                    "default_entity_id": f"sensor.{obj_lux}",
+                }
+                payload_lux = _apply_device(payload_lux, "domus")
+                if _disc_publish("sensor", obj_lux, payload_lux):
+                    published += 1
 
         # Scenari -> button (solo chiamata)
         for e in entities:
