@@ -1,6 +1,7 @@
 - Cosa e cambiato:
   - Persistenza `ui_tags.json` e nomi termostati spostata su `/addon_configs/ksenia_lares_addon` con fallback a `/data`.
   - Supporto mappa manuale `domus_thermostat_map` (DOMUS ID -> TH ID) per valori/comandi.
+  - Aggiunto campo TH ID in UI `index_debug` per salvare la mappa direttamente da interfaccia.
   - Fix normalizzazione ID e sorting termostati con ID misti (stringhe/numeri) per evitare errori runtime.
   - Resi disponibili i helper `ui_tags`/domus anche su reconnect per la sync termostati.
 - File toccati:
@@ -9,4 +10,4 @@
   - `app/main.py`
   - `config.yaml`
 - Versione (`config.yaml`):
-  - incrementata a 5.2.74 per includere la mappa manuale domus->termostati.
+  - incrementata a 5.2.75 per includere il campo TH ID in UI.

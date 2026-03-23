@@ -3826,9 +3826,11 @@ def main():
                     return {"ok": False, "error": "invalid id"}
                 enabled = True
                 name = ""
+                th_id = ""
                 if isinstance(value, dict):
                     enabled = _coerce_bool(value.get("enabled", True), True)
                     name = str(value.get("name") or "").strip()
+                    th_id = str(value.get("th_id") or "").strip()
                 elif action == "delete":
                     enabled = False
                 with ui_tags_lock:
@@ -3837,11 +3839,23 @@ def main():
                     if not isinstance(m, dict):
                         m = {}
                         data["domus_thermostats"] = m
+                    mm = data.get("domus_thermostat_map")
+                    if not isinstance(mm, dict):
+                        mm = {}
+                        data["domus_thermostat_map"] = mm
                     key = str(entity_id_int)
                     if (not enabled) or action == "delete":
                         m.pop(key, None)
+                        mm.pop(key, None)
                     else:
                         m[key] = {"enabled": True, "name": name}
+                        if th_id:
+                            try:
+                                mm[key] = str(int(th_id))
+                            except Exception:
+                                mm.pop(key, None)
+                        else:
+                            mm.pop(key, None)
                     _save_ui_tags_file(data)
                     overrides = _domus_thermostat_overrides_from_data(data)
                     resolved_overrides = _resolve_domus_thermostat_overrides(overrides, getattr(manager, "_readData", None))

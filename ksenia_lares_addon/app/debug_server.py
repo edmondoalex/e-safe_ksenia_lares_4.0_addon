@@ -2241,17 +2241,27 @@ def render_index(snapshot):
             dmap = ui_tags.get("domus_thermostats") if isinstance(ui_tags, dict) else {}
             if not isinstance(dmap, dict):
                 dmap = {}
+            dmap_th = ui_tags.get("domus_thermostat_map") if isinstance(ui_tags, dict) else {}
+            if not isinstance(dmap_th, dict):
+                dmap_th = {}
             dentry = dmap.get(str(entity_id)) if entity_id is not None else None
             denabled = False
             dname = ""
+            dth = ""
             if isinstance(dentry, dict):
                 denabled = _coerce_bool(dentry.get("enabled", True), True)
                 dname = str(dentry.get("name") or "").strip()
+            try:
+                dth = str(dmap_th.get(str(entity_id)) or "").strip()
+            except Exception:
+                dth = ""
             controls = (
                 f"<span class=\"ctl\">Thermostat "
                 f"<input type=\"checkbox\" id=\"domus-th-en-{_html_escape(entity_id)}\"{' checked' if denabled else ''}/></span> "
                 f"<span class=\"ctl\">Nome "
                 f"<input class=\"mono\" id=\"domus-th-name-{_html_escape(entity_id)}\" style=\"width:160px\" value=\"{_html_escape(dname)}\" placeholder=\"Nome termostato\"/></span> "
+                f"<span class=\"ctl\">TH ID "
+                f"<input class=\"mono\" id=\"domus-th-map-{_html_escape(entity_id)}\" style=\"width:70px\" value=\"{_html_escape(dth)}\" placeholder=\"ID\"/></span> "
                 f"<button class=\"cmd\" onclick=\"setDomusThermostat({_html_escape(entity_id)})\">Salva</button>"
             )
 
@@ -2831,9 +2841,11 @@ def render_index(snapshot):
       function setDomusThermostat(id) {{
         const en = document.getElementById(`domus-th-en-${{id}}`);
         const nm = document.getElementById(`domus-th-name-${{id}}`);
+        const th = document.getElementById(`domus-th-map-${{id}}`);
         const enabled = !!(en && en.checked);
         const name = nm ? String(nm.value || '').trim() : '';
-        sendCmd('domus_thermostat', id, 'set', {{ enabled: enabled, name: name }});
+        const th_id = th ? String(th.value || '').trim() : '';
+        sendCmd('domus_thermostat', id, 'set', {{ enabled: enabled, name: name, th_id: th_id }});
       }}
 
       function bindTagInputs() {{
