@@ -448,3 +448,11 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/debug_server.py
 - ksenia_lares_addon/config.yaml
+## 2026-03-30 - Retry connessione MQTT in avvio
+- In avvio, la connessione MQTT ora ritenta con backoff fino a 60s invece di terminare al primo errore di connessione.
+- Mantengo exit immediato solo per host non risolvibile (gaierror).
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.79` (fix: add-on resta attivo finche' il broker esterno non e' pronto).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/config.yaml

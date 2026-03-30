@@ -969,16 +969,21 @@ def main():
 
     if mqtt_user:
         mqttc.username_pw_set(mqtt_user, mqtt_password)
-    try:
-        mqttc.connect(mqtt_host, mqtt_port, 60)
-    except socket.gaierror as exc:
-        print(f"[FATAL] MQTT_HOST '{mqtt_host}' non risolvibile: {exc}")
-        print("[FATAL] Imposta 'mqtt_host' nelle opzioni dell'add-on (o MQTT_HOST) a un hostname/IP raggiungibile.")
-        print("[FATAL] Se usi Mosquitto add-on, verifica che sia installato e avviato (host tipico: core-mosquitto).")
-        raise SystemExit(2)
-    except Exception as exc:
-        print(f"[FATAL] Connessione MQTT fallita verso {mqtt_host}:{mqtt_port}: {exc}")
-        raise SystemExit(2)
+    attempt = 0
+    while True:
+        try:
+            mqttc.connect(mqtt_host, mqtt_port, 60)
+            break
+        except socket.gaierror as exc:
+            print(f"[FATAL] MQTT_HOST '{mqtt_host}' non risolvibile: {exc}")
+            print("[FATAL] Imposta 'mqtt_host' nelle opzioni dell'add-on (o MQTT_HOST) a un hostname/IP raggiungibile.")
+            print("[FATAL] Se usi Mosquitto add-on, verifica che sia installato e avviato (host tipico: core-mosquitto).")
+            raise SystemExit(2)
+        except Exception as exc:
+            attempt += 1
+            wait_s = min(60, 2 ** min(attempt, 6))
+            print(f"[WARNING] Connessione MQTT fallita verso {mqtt_host}:{mqtt_port}: {exc} - retry in {wait_s}s")
+            time.sleep(wait_s)
     mqttc.loop_start()
 
     def publish(entity_type: str, item: dict):
