@@ -1617,6 +1617,121 @@ def main():
                     pass
         return cleared
 
+    def _clear_partition_discovery(ids) -> int:
+        cleared = 0
+        if not isinstance(ids, (list, tuple, set)):
+            return cleared
+        prefixes = {str(mqtt_prefix).strip(), str(mqtt_prefix_slug).strip()}
+        for raw_id in ids:
+            try:
+                pid = str(int(raw_id))
+            except Exception:
+                continue
+            for pf in prefixes:
+                if not pf:
+                    continue
+                obj_id = f"{pf}_part_{pid}"
+                topics = (
+                    f"{DISC_PREFIX}/alarm_control_panel/{obj_id}/config",
+                    f"{DISC_PREFIX}/binary_sensor/{obj_id}_armed/config",
+                    f"{DISC_PREFIX}/sensor/{obj_id}_alarm_zones/config",
+                    # Legacy partition binary_sensor cleanup.
+                    f"{DISC_PREFIX}/binary_sensor/{obj_id}/config",
+                )
+                for topic in topics:
+                    try:
+                        _log_mqtt("discovery", topic, "", True)
+                        mqttc.publish(topic, "", retain=True)
+                        cleared += 1
+                    except Exception:
+                        pass
+        return cleared
+
+    def _clear_discovery_for_entity_ids(entity_type: str, ids) -> int:
+        et = str(entity_type or "").lower().strip()
+        if et == "thermostats":
+            return _clear_thermostat_discovery(ids)
+        if et == "partitions":
+            return _clear_partition_discovery(ids)
+        if not isinstance(ids, (list, tuple, set)):
+            return 0
+        prefixes = {str(mqtt_prefix).strip(), str(mqtt_prefix_slug).strip()}
+        cleared = 0
+        for raw_id in ids:
+            try:
+                eid = str(int(raw_id))
+            except Exception:
+                continue
+            for pf in prefixes:
+                if not pf:
+                    continue
+                topics = []
+                if et == "zones":
+                    topics.extend(
+                        (
+                            f"{DISC_PREFIX}/binary_sensor/{pf}_zone_{eid}/config",
+                            f"{DISC_PREFIX}/binary_sensor/{pf}_zone_{eid}_alarm/config",
+                            f"{DISC_PREFIX}/binary_sensor/{pf}_zone_{eid}_bypass/config",
+                            f"{DISC_PREFIX}/binary_sensor/{pf}_zone_{eid}_tamper/config",
+                            f"{DISC_PREFIX}/binary_sensor/{pf}_zone_{eid}_mask/config",
+                            f"{DISC_PREFIX}/switch/{pf}_zone_{eid}_bypass_ctrl/config",
+                        )
+                    )
+                elif et == "outputs":
+                    topics.extend(
+                        (
+                            f"{DISC_PREFIX}/switch/{pf}_out_{eid}/config",
+                            f"{DISC_PREFIX}/cover/{pf}_out_{eid}_cover/config",
+                            # Legacy cleanup.
+                            f"{DISC_PREFIX}/binary_sensor/{pf}_out_{eid}/config",
+                        )
+                    )
+                elif et == "scenarios":
+                    topics.extend(
+                        (
+                            f"{DISC_PREFIX}/button/{pf}_scen_{eid}/config",
+                            # Legacy cleanup.
+                            f"{DISC_PREFIX}/script/{pf}_scen_{eid}/config",
+                        )
+                    )
+                elif et == "domus":
+                    topics.extend(
+                        (
+                            f"{DISC_PREFIX}/sensor/{pf}_domus_{eid}_temperature/config",
+                            f"{DISC_PREFIX}/sensor/{pf}_domus_{eid}_humidity/config",
+                            f"{DISC_PREFIX}/sensor/{pf}_domus_{eid}_illuminance/config",
+                            f"{DISC_PREFIX}/binary_sensor/{pf}_domus_{eid}_threshold_light/config",
+                            f"{DISC_PREFIX}/binary_sensor/{pf}_domus_{eid}_threshold_humidity/config",
+                        )
+                    )
+                elif et == "accounts":
+                    topics.extend(
+                        (
+                            f"{DISC_PREFIX}/switch/{pf}_user_{eid}/config",
+                            # Legacy cleanup.
+                            f"{DISC_PREFIX}/binary_sensor/{pf}_acc_{eid}/config",
+                            f"{DISC_PREFIX}/switch/{pf}_acc_{eid}/config",
+                        )
+                    )
+                elif et == "systems":
+                    topics.extend(
+                        (
+                            f"{DISC_PREFIX}/sensor/{pf}_sys_{eid}_in/config",
+                            f"{DISC_PREFIX}/sensor/{pf}_sys_{eid}_out/config",
+                            f"{DISC_PREFIX}/sensor/{pf}_sys_{eid}_arm_desc/config",
+                        )
+                    )
+                elif et == "schedulers":
+                    topics.extend((f"{DISC_PREFIX}/switch/{pf}_sched_{eid}/config",))
+                for topic in topics:
+                    try:
+                        _log_mqtt("discovery", topic, "", True)
+                        mqttc.publish(topic, "", retain=True)
+                        cleared += 1
+                    except Exception:
+                        pass
+        return cleared
+
     def publish_discovery(snapshot: dict):
         entities = snapshot.get("entities") or []
         published = 0
@@ -2991,6 +3106,59 @@ def main():
                 out.append({"ID": tid_n, "DES": str(name or "").strip() or f"Thermostat {tid_n}"})
         return out
 
+    def _sync_static_entities_from_read_data(read_data, reason: str):
+        try:
+            if not isinstance(read_data, dict):
+                return
+            sync_map = (
+                ("outputs", "OUTPUTS"),
+                ("domus", "BUS_HAS"),
+                ("powerlines", "POWER_LINES"),
+                ("partitions", "PARTITIONS"),
+                ("zones", "ZONES"),
+                ("scenarios", "SCENARIOS"),
+                ("systems", "STATUS_SYSTEM"),
+                ("connection", "STATUS_CONNECTION"),
+                ("accounts", "CFG_ACCOUNTS"),
+            )
+            for entity_type, read_key in sync_map:
+                if read_key not in read_data:
+                    continue
+                raw_items = read_data.get(read_key) or []
+                if not isinstance(raw_items, list):
+                    continue
+                items = []
+                for item in raw_items:
+                    if not isinstance(item, dict):
+                        continue
+                    if entity_type == "domus":
+                        typ = str(item.get("TYP", ""))
+                        if (item.get("TYP") != "DOMUS") and ("DOMUS" not in typ):
+                            continue
+                    if item.get("ID") is None:
+                        continue
+                    items.append(item)
+                keep_ids = []
+                for item in items:
+                    eid = item.get("ID")
+                    try:
+                        keep_ids.append(str(int(eid)))
+                    except Exception:
+                        keep_ids.append(str(eid))
+                removed = state.prune_entity_ids(entity_type, keep_ids)
+                state.apply_static_update(entity_type, items)
+                if removed:
+                    cleared = _clear_discovery_for_entity_ids(entity_type, removed)
+                    logger.info(
+                        "Static sync cleanup (%s/%s): removed=%s cleared=%s",
+                        reason,
+                        entity_type,
+                        removed,
+                        cleared,
+                    )
+        except Exception as exc:
+            logger.error("Static sync failed (%s): %s", reason, exc)
+
     async def _after_reconnect(read_data, realtime_initial, system_version):
         logger.info("WebSocket riallineata: ricarico dati (static+realtime)")
         try:
@@ -3007,6 +3175,7 @@ def main():
             state.set_initial_data(read_data, realtime_initial)
         except Exception as exc:
             logger.error(f"Debug initial ingest error (reconnect): {exc}")
+        _sync_static_entities_from_read_data(read_data, "reconnect sync")
         try:
             therms = await manager.getThermostats()
             try:
@@ -4533,6 +4702,7 @@ def main():
             state.set_initial_data(getattr(manager, "_readData", None), getattr(manager, "_realtimeInitialData", None))
         except Exception as exc:
             logger.error(f"Debug initial ingest error: {exc}")
+        _sync_static_entities_from_read_data(getattr(manager, "_readData", None), "startup sync")
         try:
             therms = await manager.getThermostats()
             try:

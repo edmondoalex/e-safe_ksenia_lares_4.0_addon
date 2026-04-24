@@ -226,6 +226,15 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/main.py
 - ksenia_lares_addon/config.yaml
+## 2026-04-24 - Sync totale entita statiche con centrale (prune globale)
+- Estesa la sincronizzazione da `READ_DATA` a tutte le principali entita statiche (`outputs`, `zones`, `partitions`, `scenarios`, `accounts`, `domus`, `systems`, `connection`, `powerlines`) con potatura automatica degli ID rimossi.
+- Aggiunto cleanup MQTT Discovery per entita rimosse (zone, uscite, partizioni, scenari, domus, utenti, sistemi, scheduler), inclusi topic legacy dove presenti.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.80` (fix: UI/add-on devono allinearsi completamente alla configurazione attuale della centrale).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/config.yaml
+- NOTES_FOR_AGENT.md
 ## 2026-03-23 - Cleanup discovery termostati legacy
 - Esteso `cleanup_discovery` per cancellare anche topic climate legacy `*_therm_<id>` su tutti gli ID snapshot (non solo sui termostati correnti), così rimuove i termostati rimasti da vecchia classificazione DOMUS.
 - Nessun cambio a `unique_id` attuali: fix solo di pulizia retained MQTT discovery.
