@@ -1166,8 +1166,9 @@ class WebSocketManager:
 
             result_raw = _extract_result()
             if result_raw is None:
-                # If RESULT is missing, be conservative for security commands to avoid "OK" fakes.
-                result_ok = False if _is_security_cmd(command_data) else True
+                # Some firmwares acknowledge CMD_USR without a RESULT field.
+                # If the response matches a pending command ID, treat it as an ACK.
+                result_ok = True
             else:
                 result_ok = str(result_raw).strip().upper() == "OK"
 
@@ -1744,7 +1745,7 @@ class WebSocketManager:
         try:
             success = await asyncio.wait_for(future, timeout=60)
             if not success:
-                self._logger.warning(f"Command {command} for {output_id} timed out")
+                self._logger.warning(f"Command {command} for {output_id} rejected by panel")
                 return False
         except asyncio.TimeoutError:
             self._logger.warning(f"Timeout waiting for command {command} for {output_id}")

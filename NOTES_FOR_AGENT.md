@@ -477,3 +477,13 @@ File toccati:
 - ksenia_lares_addon/app/main.py
 - ksenia_lares_addon/app/websocketmanager.py
 - ksenia_lares_addon/config.yaml
+
+## 2026-05-22 - Fix log eventi rumorosi e ACK scenari senza RESULT
+- I timeout della lettura registro eventi (`LOGS_RES`) non vengono piu' loggati come errori vuoti: restano a livello debug.
+- Le risposte `CMD_USR_RES` senza campo `RESULT` vengono trattate come ACK quando corrispondono a un comando pendente, per compatibilita' con firmware che non inviano `RESULT=OK` sugli scenari.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.82` (fix: falsi errori getLogs e scenari marcati falliti nonostante ACK).
+
+File toccati:
+- ksenia_lares_addon/app/wscall.py
+- ksenia_lares_addon/app/websocketmanager.py
+- ksenia_lares_addon/config.yaml

@@ -591,8 +591,11 @@ async def getLogs(websocket, login_id, _LOGGER, id_log="MAIN", items=150, items_
                     )
                 return resp.get("PAYLOAD") or {}
             await _dispatch_unhandled(dispatch_unhandled, resp)
+    except asyncio.TimeoutError:
+        _LOGGER.debug("getLogs timed out waiting for LOGS_RES")
+        return {}
     except Exception as e:
-        _LOGGER.error(f"getLogs call failed: {e}")
+        _LOGGER.error("getLogs call failed: %r (%s)", e, type(e).__name__)
         return {}
 
 
