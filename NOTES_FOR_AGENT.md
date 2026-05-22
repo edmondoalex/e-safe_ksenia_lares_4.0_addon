@@ -226,6 +226,7 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/main.py
 - ksenia_lares_addon/config.yaml
+
 ## 2026-04-24 - Sync totale entita statiche con centrale (prune globale)
 - Estesa la sincronizzazione da `READ_DATA` a tutte le principali entita statiche (`outputs`, `zones`, `partitions`, `scenarios`, `accounts`, `domus`, `systems`, `connection`, `powerlines`) con potatura automatica degli ID rimossi.
 - Aggiunto cleanup MQTT Discovery per entita rimosse (zone, uscite, partizioni, scenari, domus, utenti, sistemi, scheduler), inclusi topic legacy dove presenti.
@@ -464,4 +465,15 @@ File toccati:
 
 File toccati:
 - ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/config.yaml
+
+## 2026-05-22 - Fix avvio, publish uscite e sync programmazione termostati
+- Ripristinata la visibilita' degli helper `domus_thermostats`, che prima restavano annidati in `_save_ui_tags_file` e causavano errori `not defined` in avvio/reconnect.
+- Reso tollerante il parsing `POS` delle uscite quando la centrale invia valori non numerici come `NA`, evitando il blocco della pubblicazione iniziale MQTT.
+- Il refresh `CFG_THERMOSTATS` ora ripubblica subito i topic MQTT `thermostats`, cosi' le modifiche di programmazione fatte su Ksenia si riallineano senza riavvio.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.81` (fix: errori avvio/publish e mancato riallineamento programmazione termostati).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/app/websocketmanager.py
 - ksenia_lares_addon/config.yaml

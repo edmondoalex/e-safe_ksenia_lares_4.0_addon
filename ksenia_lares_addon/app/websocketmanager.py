@@ -2099,6 +2099,12 @@ class WebSocketManager:
     :rtype: list
     """
 
+    def _safe_output_pos(self, value, default=255):
+        try:
+            return int(value)
+        except Exception:
+            return default
+
     async def getLights(self):
         await self.wait_for_initial_data(timeout=5)
         if not self._realtimeInitialData or not self._readData:
@@ -2116,7 +2122,7 @@ class WebSocketManager:
             )
             if state_data:
                 state_data["STA"] = state_data.get("STA", "off").lower()
-                state_data["POS"] = int(state_data.get("POS", 255))
+                state_data["POS"] = self._safe_output_pos(state_data.get("POS", 255))
                 lights_with_states.append({**light, **state_data})
         return lights_with_states
 
@@ -2148,7 +2154,7 @@ class WebSocketManager:
             )
             if state_data:
                 state_data["STA"] = state_data.get("STA", "off").lower()
-                state_data["POS"] = int(state_data.get("POS", 255))
+                state_data["POS"] = self._safe_output_pos(state_data.get("POS", 255))
                 rolls_with_states.append({**roll, **state_data})
         return rolls_with_states
 
