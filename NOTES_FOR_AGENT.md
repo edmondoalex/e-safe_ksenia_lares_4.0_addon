@@ -487,3 +487,16 @@ File toccati:
 - ksenia_lares_addon/app/wscall.py
 - ksenia_lares_addon/app/websocketmanager.py
 - ksenia_lares_addon/config.yaml
+
+## 2026-05-22 - Fix comandi uscite da Security UI
+- Dopo ON/OFF/TOGGLE/brightness da UI viene aggiornato e pubblicato anche lo stato `outputs`, evitando stato stale e toggle successivi errati.
+- La pagina `/security/functions/outputs` usa URL API compatibili con Ingress, sblocca sempre i pulsanti con `finally` e legge l'esito JSON del comando.
+- Ridotto l'impatto del poller log sulla WebSocket comandi (`LOGS` ogni 30s con timeout 3s) e allungato il timeout HTTP dei comandi UI a 65s.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.83` (fix: comandi uscite funzionavano solo una volta dopo rientro pagina).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/app/debug_server.py
+- ksenia_lares_addon/app/websocketmanager.py
+- ksenia_lares_addon/app/wscall.py
+- ksenia_lares_addon/config.yaml

@@ -4107,7 +4107,9 @@ def main():
                         if ok:
                             try:
                                 patch = {"ID": str(entity_id_int), "STA": "ON"}
+                                state.apply_realtime_update("outputs", [patch])
                                 state.apply_realtime_update("lights", [patch])
+                                publish("outputs", patch)
                                 publish("lights", patch)
                                 publish("switches", patch)
                                 publish("covers", patch)
@@ -4119,7 +4121,9 @@ def main():
                         if ok:
                             try:
                                 patch = {"ID": str(entity_id_int), "STA": "OFF", "LEV": "0"}
+                                state.apply_realtime_update("outputs", [patch])
                                 state.apply_realtime_update("lights", [patch])
+                                publish("outputs", patch)
                                 publish("lights", patch)
                                 publish("switches", patch)
                                 publish("covers", patch)
@@ -4147,7 +4151,9 @@ def main():
                             if ok:
                                 try:
                                     patch = {"ID": str(entity_id_int), "STA": "OFF", "LEV": "0"}
+                                    state.apply_realtime_update("outputs", [patch])
                                     state.apply_realtime_update("lights", [patch])
+                                    publish("outputs", patch)
                                     publish("lights", patch)
                                     publish("switches", patch)
                                     publish("covers", patch)
@@ -4158,7 +4164,9 @@ def main():
                         if ok:
                             try:
                                 patch = {"ID": str(entity_id_int), "STA": "ON"}
+                                state.apply_realtime_update("outputs", [patch])
                                 state.apply_realtime_update("lights", [patch])
+                                publish("outputs", patch)
                                 publish("lights", patch)
                                 publish("switches", patch)
                                 publish("covers", patch)
@@ -4175,7 +4183,9 @@ def main():
                         if ok:
                             try:
                                 patch = {"ID": str(entity_id_int), "STA": "ON", "LEV": str(brightness)}
+                                state.apply_realtime_update("outputs", [patch])
                                 state.apply_realtime_update("lights", [patch])
+                                publish("outputs", patch)
                                 publish("lights", patch)
                                 publish("switches", patch)
                                 publish("covers", patch)
@@ -4666,7 +4676,7 @@ def main():
 
             fut = asyncio.run_coroutine_threadsafe(_coro(), loop)
             try:
-                result = fut.result(timeout=20)
+                result = fut.result(timeout=65)
             except concurrent.futures.TimeoutError:
                 return {"ok": False, "error": "timeout"}
             except Exception as exc:

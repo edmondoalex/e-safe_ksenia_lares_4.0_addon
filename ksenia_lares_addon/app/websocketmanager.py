@@ -341,6 +341,7 @@ class WebSocketManager:
                 self._logger,
                 items=items,
                 dispatch_unhandled=self.handle_message,
+                timeout_s=3,
             )
         if not isinstance(payload, dict):
             return []
@@ -360,7 +361,7 @@ class WebSocketManager:
     async def logs_poller(self):
         # Periodically fetch logs; emit only new entries.
         items = 500
-        poll_s = 5.0
+        poll_s = 30.0
         while True:
             if not self._running:
                 await asyncio.sleep(1.0)
@@ -376,6 +377,7 @@ class WebSocketManager:
                         self._logger,
                         items=items,
                         dispatch_unhandled=self.handle_message,
+                        timeout_s=3,
                     )
                 logs = (payload or {}).get("LOGS") or []
                 if not isinstance(logs, list):

@@ -552,7 +552,16 @@ CMD: LOGS
 PAYLOAD_TYPE: GET_LAST_LOGS
 PAYLOAD: { ID_LOGIN, ID_LOG:"MAIN", ITEMS_LOG:"150", ITEMS_TYPE:["ALL"] }
 """
-async def getLogs(websocket, login_id, _LOGGER, id_log="MAIN", items=150, items_type=None, dispatch_unhandled=None):
+async def getLogs(
+    websocket,
+    login_id,
+    _LOGGER,
+    id_log="MAIN",
+    items=150,
+    items_type=None,
+    dispatch_unhandled=None,
+    timeout_s=10,
+):
     if items_type is None:
         items_type = ["ALL"]
     global cmd_id
@@ -575,7 +584,7 @@ async def getLogs(websocket, login_id, _LOGGER, id_log="MAIN", items=150, items_
     )
     try:
         await websocket.send(json_cmd)
-        deadline = time.time() + 10
+        deadline = time.time() + max(1, float(timeout_s or 10))
         while True:
             timeout = max(0.1, deadline - time.time())
             if timeout <= 0:
