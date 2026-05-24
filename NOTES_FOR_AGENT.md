@@ -509,3 +509,12 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/debug_server.py
 - ksenia_lares_addon/config.yaml
+
+## 2026-05-24 - Preferiti senza pulsante rimozione
+- Rimosso il pulsante `Rimuovi` dalla pagina Preferiti per evitare cancellazioni accidentali.
+- La gestione dei preferiti resta disponibile dalle pagine/admin dedicate.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.85` (fix UX preferiti).
+
+File toccati:
+- ksenia_lares_addon/app/debug_server.py
+- ksenia_lares_addon/config.yaml

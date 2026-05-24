@@ -8885,7 +8885,6 @@ def render_security_favorites(snapshot):
                 '</div>' +
                 '<div class=\"actions\">' +
                   actions +
-                  '<button class=\"btn\" data-act=\"remove\" data-id=\"' + id + '\" data-type=\"' + t + '\">Rimuovi</button>' +
                 '</div>' +
               '</div>'
             );
