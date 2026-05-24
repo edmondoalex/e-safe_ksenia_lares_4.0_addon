@@ -8848,11 +8848,18 @@ def render_security_favorites(snapshot):
             let actions = '';
             if (t === 'outputs') {{
               const sta = String(rt.STA || '').toUpperCase();
-              meta = 'Cat: ' + (st.CAT || st.TYP || '-');
+              const cat = String(st.CAT || st.TYP || '').trim().toUpperCase();
+              meta = 'Cat: ' + (cat || '-');
               if (sta) status = badge(sta === 'ON' ? 'ok' : 'warn', 'STA ' + sta);
-              actions = '<button class=\"btn\" data-act=\"on\" data-id=\"' + id + '\" data-type=\"outputs\">ON</button>' +
-                        '<button class=\"btn\" data-act=\"off\" data-id=\"' + id + '\" data-type=\"outputs\">OFF</button>' +
-                        '<button class=\"btn\" data-act=\"toggle\" data-id=\"' + id + '\" data-type=\"outputs\">TOGGLE</button>';
+              if (cat === 'ROLL') {{
+                actions = '<button class=\"btn\" data-act=\"up\" data-id=\"' + id + '\" data-type=\"outputs\">UP</button>' +
+                          '<button class=\"btn\" data-act=\"down\" data-id=\"' + id + '\" data-type=\"outputs\">DOWN</button>' +
+                          '<button class=\"btn\" data-act=\"stop\" data-id=\"' + id + '\" data-type=\"outputs\">STOP</button>';
+              }} else {{
+                actions = '<button class=\"btn\" data-act=\"on\" data-id=\"' + id + '\" data-type=\"outputs\">ON</button>' +
+                          '<button class=\"btn\" data-act=\"off\" data-id=\"' + id + '\" data-type=\"outputs\">OFF</button>' +
+                          '<button class=\"btn\" data-act=\"toggle\" data-id=\"' + id + '\" data-type=\"outputs\">TOGGLE</button>';
+              }}
             }} else if (t === 'partitions') {{
               const arm = rt.ARM || '';
               status = badge(String(arm).trim().toUpperCase() === 'D' ? 'ok' : 'warn', 'ARM ' + String(arm || '-'));

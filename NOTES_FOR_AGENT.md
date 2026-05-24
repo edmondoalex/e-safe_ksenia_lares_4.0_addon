@@ -500,3 +500,12 @@ File toccati:
 - ksenia_lares_addon/app/websocketmanager.py
 - ksenia_lares_addon/app/wscall.py
 - ksenia_lares_addon/config.yaml
+
+## 2026-05-24 - Preferiti: controlli ROLL come portoni/tapparelle
+- Nella pagina Preferiti gli output con `CAT=ROLL` ora mostrano i comandi `UP`, `DOWN`, `STOP` invece di `ON`, `OFF`, `TOGGLE`.
+- Gli output non ROLL mantengono i comandi ON/OFF/TOGGLE.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.84` (fix UI preferiti per portoni/ROLL).
+
+File toccati:
+- ksenia_lares_addon/app/debug_server.py
+- ksenia_lares_addon/config.yaml
