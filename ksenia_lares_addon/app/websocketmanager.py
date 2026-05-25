@@ -16,7 +16,6 @@ from wscall import (
     REALTIME_TYPES_LIST,
     build_realtime_register_cmd,
     readData,
-    readTypes,
     readZones,
     exeScenario,
     setOutput,
@@ -320,43 +319,6 @@ class WebSocketManager:
             self._outputs_task = asyncio.create_task(self.outputs_poller())
         if self._systems_task is None or self._systems_task.done():
             self._systems_task = asyncio.create_task(self.systems_poller())
-
-    async def _fill_missing_read_data(self):
-        if not isinstance(self._readData, dict):
-            self._readData = {}
-        required = [
-            "OUTPUTS",
-            "BUS_HAS",
-            "SCENARIOS",
-            "POWER_LINES",
-            "PARTITIONS",
-            "ZONES",
-            "STATUS_SYSTEM",
-            "CFG_SCHEDULER_TIMERS",
-            "CFG_HOLIDAYS",
-            "TEMPERATURES",
-            "HUMIDITY",
-            "CFG_ACCOUNTS",
-        ]
-        missing = [key for key in required if key not in self._readData]
-        if not missing:
-            return
-        self._logger.warning("Initial READ missing %s; retrying targeted read", missing)
-        payload = await readTypes(
-            self._ws,
-            self._loginId,
-            self._logger,
-            missing,
-            timeout_s=12,
-            dispatch_unhandled=self.handle_message,
-        )
-        if isinstance(payload, dict):
-            for key, value in payload.items():
-                if key in missing:
-                    self._readData[key] = value
-        still_missing = [key for key in required if key not in self._readData]
-        if still_missing:
-            self._logger.warning("Initial READ still missing after retry: %s", still_missing)
 
     def _zone_compact(self, z: dict) -> dict:
         if not isinstance(z, dict):
@@ -862,7 +824,7 @@ class WebSocketManager:
                 self._logger.info("Reading system version")
                 self._systemVersion = await systemVersion(self._ws, self._loginId, self._logger)
                 self._logger.info("Reading event logs")
-                self._logs_state = await getLogs(self._ws, self._loginId, self._logger, items=500, timeout_s=3)
+                self._logs_state = await getLogs(self._ws, self._loginId, self._logger, items=500)
                 try:
                     logs = (self._logs_state or {}).get("LOGS") or []
                     if isinstance(logs, list) and logs:
@@ -871,7 +833,6 @@ class WebSocketManager:
                     pass
                 self._logger.info("Extracting initial data")
                 self._readData = await readData(self._ws, self._loginId, self._logger)
-                await self._fill_missing_read_data()
                 # Fetch full thermostat config (mobile app uses a dedicated PAYLOAD_TYPE and returns full schedules).
                 try:
                     self._logger.info("Reading thermostat config (CFG_THERMOSTATS)")
@@ -963,7 +924,7 @@ class WebSocketManager:
                 self._logger.info("Reading system version")
                 self._systemVersion = await systemVersion(self._ws, self._loginId, self._logger)
                 self._logger.info("Reading event logs")
-                self._logs_state = await getLogs(self._ws, self._loginId, self._logger, items=500, timeout_s=3)
+                self._logs_state = await getLogs(self._ws, self._loginId, self._logger, items=500)
                 try:
                     logs = (self._logs_state or {}).get("LOGS") or []
                     if isinstance(logs, list) and logs:
@@ -972,7 +933,6 @@ class WebSocketManager:
                     pass
                 self._logger.info("Extracting initial data")
                 self._readData = await readData(self._ws, self._loginId, self._logger)
-                await self._fill_missing_read_data()
                 # Fetch full thermostat config (mobile app uses a dedicated PAYLOAD_TYPE and returns full schedules).
                 try:
                     self._logger.info("Reading thermostat config (CFG_THERMOSTATS)")

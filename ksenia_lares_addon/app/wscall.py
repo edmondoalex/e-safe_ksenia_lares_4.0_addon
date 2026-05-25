@@ -204,124 +204,27 @@ Extract the initial data from the Ksenia panel.
 :return: Initial data from the Ksenia panel
 :rtype: dict
 """
-async def readData(websocket, login_id, _LOGGER, timeout_s=18):
+async def readData(websocket,login_id,_LOGGER):
     _LOGGER.info("extracting data")
     global cmd_id
     cmd_id += 1
-    expected_id = str(cmd_id)
     json_cmd = addCRC(
             '{"SENDER":"HomeAssistant","RECEIVER":"","CMD":"READ","ID":"'
-            + expected_id
+            + str(cmd_id)
             + '","PAYLOAD_TYPE":"MULTI_TYPES","PAYLOAD":{"ID_LOGIN":"'
             + str(login_id)
             + '","ID_READ":"1","TYPES":'+str(read_types)+'},"TIMESTAMP":"'
             + str(int(time.time()))
             + '","CRC_16":"0x0000"}'
         )
-    merged_payload = {}
-    wanted = set()
-    try:
-        wanted = set(json.loads(read_types))
-    except Exception:
-        wanted = set()
     try:
         await websocket.send(json_cmd)
-        deadline = time.time() + max(3, float(timeout_s or 18))
-        while True:
-            timeout = max(0.1, deadline - time.time())
-            if timeout <= 0:
-                break
-            json_resp_states = await asyncio.wait_for(websocket.recv(), timeout=timeout)
-            response_read = json.loads(json_resp_states)
-            if response_read.get("CMD") != "READ_RES":
-                continue
-            payload = response_read.get("PAYLOAD") or {}
-            if not isinstance(payload, dict):
-                continue
-            if str(response_read.get("ID") or "") != expected_id:
-                _LOGGER.warning(
-                    "readData: READ_RES id mismatch (expected %s, got %s) - merging reply",
-                    expected_id,
-                    response_read.get("ID"),
-                )
-            for key, value in payload.items():
-                if isinstance(value, list):
-                    existing = merged_payload.get(key)
-                    if isinstance(existing, list):
-                        by_id = {}
-                        rest = []
-                        for item in existing + value:
-                            if isinstance(item, dict) and item.get("ID") is not None:
-                                by_id[str(item.get("ID"))] = item
-                            else:
-                                rest.append(item)
-                        merged_payload[key] = rest + list(by_id.values())
-                    else:
-                        merged_payload[key] = value
-                else:
-                    merged_payload[key] = value
-            if wanted and wanted.issubset(set(merged_payload.keys())):
-                break
+        json_resp_states = await websocket.recv()
+        response_read = json.loads(json_resp_states)
     except Exception as e:
-        _LOGGER.error("readData call failed: %r (%s)", e, type(e).__name__)
-    if wanted:
-        missing = sorted(wanted - set(merged_payload.keys()))
-        if missing:
-            _LOGGER.warning("readData incomplete: missing keys=%s present=%s", missing, sorted(merged_payload.keys()))
-    return merged_payload
-
-
-async def readTypes(websocket, login_id, _LOGGER, types, timeout_s=10, dispatch_unhandled=None):
-    types_list = [str(t) for t in (types or []) if str(t or "").strip()]
-    if not types_list:
-        return {}
-    global cmd_id
-    cmd_id += 1
-    expected_id = str(cmd_id)
-    json_cmd = addCRC(
-        '{"SENDER":"HomeAssistant","RECEIVER":"","CMD":"READ","ID":"'
-        + expected_id
-        + '","PAYLOAD_TYPE":"MULTI_TYPES","PAYLOAD":{"ID_LOGIN":"'
-        + str(login_id)
-        + '","ID_READ":"1","TYPES":'
-        + json.dumps(types_list)
-        + '},"TIMESTAMP":"'
-        + str(int(time.time()))
-        + '","CRC_16":"0x0000"}'
-    )
-    merged_payload = {}
-    wanted = set(types_list)
-    try:
-        await websocket.send(json_cmd)
-        deadline = time.time() + max(2, float(timeout_s or 10))
-        while True:
-            timeout = max(0.1, deadline - time.time())
-            if timeout <= 0:
-                break
-            json_resp = await asyncio.wait_for(websocket.recv(), timeout=timeout)
-            resp = json.loads(json_resp)
-            if resp.get("CMD") != "READ_RES":
-                await _dispatch_unhandled(dispatch_unhandled, resp)
-                continue
-            payload = resp.get("PAYLOAD") or {}
-            if not isinstance(payload, dict):
-                continue
-            if str(resp.get("ID") or "") != expected_id:
-                _LOGGER.warning(
-                    "readTypes: READ_RES id mismatch (expected %s, got %s) - merging reply",
-                    expected_id,
-                    resp.get("ID"),
-                )
-            for key, value in payload.items():
-                merged_payload[key] = value
-            if wanted.issubset(set(merged_payload.keys())):
-                break
-    except Exception as e:
-        _LOGGER.error("readTypes %s failed: %r (%s)", types_list, e, type(e).__name__)
-    missing = sorted(wanted - set(merged_payload.keys()))
-    if missing:
-        _LOGGER.warning("readTypes incomplete: missing keys=%s present=%s", missing, sorted(merged_payload.keys()))
-    return merged_payload
+        _LOGGER.error(f"readData call failed: {e}")
+        _LOGGER.error(response_read)
+    return response_read["PAYLOAD"]
 
 
 """
