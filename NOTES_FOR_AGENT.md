@@ -528,3 +528,16 @@ File toccati:
 - ksenia_lares_addon/app/wscall.py
 - ksenia_lares_addon/app/websocketmanager.py
 - ksenia_lares_addon/config.yaml
+
+## 2026-05-25 - Rollback esteso comunicazione Lares
+- Ripristinati `main.py`, `websocketmanager.py` e `wscall.py` alla base `5.2.81`, mantenendo i fix noti su helper Domus/POS `NA` ma rimuovendo le modifiche successive su ACK, poll log, comandi e sessioni WS.
+- Ripristinata anche la pagina output Security UI alla logica precedente, mantenendo solo i Preferiti con `ROLL` = `UP/DOWN/STOP` e senza pulsante `Rimuovi`.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.89` (rollback stabilita' collegamento add-on/Lares dopo regressioni recenti).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/app/websocketmanager.py
+- ksenia_lares_addon/app/wscall.py
+- ksenia_lares_addon/app/debug_server.py
+- ksenia_lares_addon/config.yaml
+- NOTES_FOR_AGENT.md

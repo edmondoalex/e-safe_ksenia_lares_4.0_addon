@@ -10884,29 +10884,17 @@ def render_security_functions_outputs(snapshot):
       }}
       async function sendCmd(type, id, action) {{
         const payload = {{ type: String(type), id: Number(id), action: String(action) }};
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 35000);
-        try {{
-          const res = await fetch(apiUrl('/api/cmd'), {{
-            method: 'POST',
-            headers: {{ 'Content-Type': 'application/json' }},
-            body: JSON.stringify(payload),
-            signal: ctrl.signal,
-          }});
-          const text = await res.text();
-          let data = null;
-          try {{ data = JSON.parse(text); }} catch (_e) {{}}
-          const ok = !!(res.ok && (!data || data.ok !== false));
-          return {{ ok, text: data ? JSON.stringify(data) : text }};
-        }} catch (e) {{
-          return {{ ok: false, text: (e && e.name === 'AbortError') ? 'timeout' : String(e) }};
-        }} finally {{
-          clearTimeout(timer);
-        }}
+        const res = await fetch('/api/cmd', {{
+          method: 'POST',
+          headers: {{ 'Content-Type': 'application/json' }},
+          body: JSON.stringify(payload),
+        }});
+        const text = await res.text();
+        return {{ ok: res.ok, text }};
       }}
 
       async function fetchSnap() {{
-        const res = await fetch(apiUrl('/api/entities'), {{ cache: 'no-store' }});
+        const res = await fetch('/api/entities', {{ cache: 'no-store' }});
         return await res.json();
       }}
 
@@ -11095,15 +11083,11 @@ def render_security_functions_outputs(snapshot):
         btn.addEventListener('click', async (ev) => {{
           const id = Number(ev.currentTarget.getAttribute('data-oid'));
           const act = String(ev.currentTarget.getAttribute('data-act'));
-          const btn = ev.currentTarget;
-          btn.disabled = true;
-          try {{
-            const res = await sendCmd('outputs', id, act);
-            if (!res.ok) alert('Errore: ' + res.text);
-          }} finally {{
-            btn.disabled = false;
-            scheduleRefresh();
-          }}
+          ev.currentTarget.disabled = true;
+          const res = await sendCmd('outputs', id, act);
+          ev.currentTarget.disabled = false;
+          if (!res.ok) alert('Errore: ' + res.text);
+          scheduleRefresh();
         }});
       }}
 
