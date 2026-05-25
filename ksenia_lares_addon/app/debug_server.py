@@ -1,4 +1,4 @@
-﻿import os
+import os
 import re
 from pathlib import Path
 import json
@@ -3751,7 +3751,6 @@ def render_thermostats(snapshot):
   </head>
   <body>
     <div class="bg"></div>
-    <button class="refreshBtn" id="refreshBtn" type="button" title="Aggiorna stato" aria-label="Aggiorna"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5a5 5 0 1 1-9.9-1H5.02a7 7 0 1 0 12.63-4.65z"/></svg></button>
     <div class="topbar">
       <a class="back" href="/thermostats" aria-label="Indietro">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -4437,7 +4436,6 @@ def render_security_ui(snapshot):
   </head>
   <body class="loading">
     <div class="bg"></div>
-    <button class="refreshBtn" id="refreshBtn" type="button" title="Aggiorna stato" aria-label="Aggiorna"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5a5 5 0 1 1-9.9-1H5.02a7 7 0 1 0 12.63-4.65z"/></svg></button>
     <div id="splash" class="splash" aria-hidden="true">
       <img src="/assets/logo_ekonex.png" alt="Ekonex"/>
     </div>
@@ -5848,7 +5846,6 @@ def render_security(snapshot):
   </head>
   <body>
     <div class="bg"></div>
-    <button class="refreshBtn" id="refreshBtn" type="button" title="Aggiorna stato" aria-label="Aggiorna"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5a5 5 0 1 1-9.9-1H5.02a7 7 0 1 0 12.63-4.65z"/></svg></button>
     <div class="topbar">
       <a class="tab active" href="/security">Stato</a>
       <a class="tab" href="/security/partitions">Partizioni</a>
@@ -6261,7 +6258,6 @@ def render_security_sensors(snapshot):
   </head>
   <body>
     <div class="bg"></div>
-    <button class="refreshBtn" id="refreshBtn" type="button" title="Aggiorna stato" aria-label="Aggiorna"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5a5 5 0 1 1-9.9-1H5.02a7 7 0 1 0 12.63-4.65z"/></svg></button>
     <div class="topbar">
       <a class="back" href="/security" aria-label="Indietro">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -6853,7 +6849,6 @@ def render_security_partitions(snapshot):
   </head>
   <body>
     <div class="bg"></div>
-    <button class="refreshBtn" id="refreshBtn" type="button" title="Aggiorna stato" aria-label="Aggiorna"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5a5 5 0 1 1-9.9-1H5.02a7 7 0 1 0 12.63-4.65z"/></svg></button>
     <div class="topbar">
       <a class="back" href="/security" aria-label="Indietro">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -7473,7 +7468,6 @@ def render_security_functions_all(snapshot):
   </head>
   <body>
     <div class="bg"></div>
-    <button class="refreshBtn" id="refreshBtn" type="button" title="Aggiorna stato" aria-label="Aggiorna"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5a5 5 0 1 1-9.9-1H5.02a7 7 0 1 0 12.63-4.65z"/></svg></button>
     <div class="topbar">
       <a class="back" href="/security" aria-label="Indietro">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -7946,7 +7940,6 @@ def render_security_scenarios(snapshot):
   </head>
   <body>
     <div class="bg"></div>
-    <button class="refreshBtn" id="refreshBtn" type="button" title="Aggiorna stato" aria-label="Aggiorna"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5a5 5 0 1 1-9.9-1H5.02a7 7 0 1 0 12.63-4.65z"/></svg></button>
     <div class="topbar">
       <a class="back" href="/security" aria-label="Indietro">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -8235,7 +8228,6 @@ def render_security_reset(snapshot):
   </head>
   <body>
     <div class="bg"></div>
-    <button class="refreshBtn" id="refreshBtn" type="button" title="Aggiorna stato" aria-label="Aggiorna"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5a5 5 0 1 1-9.9-1H5.02a7 7 0 1 0 12.63-4.65z"/></svg></button>
     <div class="topbar">
       <a class="back" href="/security/functions" aria-label="Indietro">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -8415,7 +8407,6 @@ def render_security_info(snapshot):
   </head>
   <body>
     <div class="bg"></div>
-    <button class="refreshBtn" id="refreshBtn" type="button" title="Aggiorna stato" aria-label="Aggiorna"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5a5 5 0 1 1-9.9-1H5.02a7 7 0 1 0 12.63-4.65z"/></svg></button>
     <div class="topbar">
       <a class="back" href="/security/functions" aria-label="Indietro">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -8654,7 +8645,6 @@ def render_security_favorites(snapshot):
   </head>
   <body>
     <div class="bg"></div>
-    <button class="refreshBtn" id="refreshBtn" type="button" title="Aggiorna stato" aria-label="Aggiorna"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5a5 5 0 1 1-9.9-1H5.02a7 7 0 1 0 12.63-4.65z"/></svg></button>
     <div class="topbar">
       <a class="back" href="/security" aria-label="Indietro">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -9049,7 +9039,6 @@ def render_security_users(snapshot):
   </head>
   <body>
     <div class="bg"></div>
-    <button class="refreshBtn" id="refreshBtn" type="button" title="Aggiorna stato" aria-label="Aggiorna"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5a5 5 0 1 1-9.9-1H5.02a7 7 0 1 0 12.63-4.65z"/></svg></button>
     <div class="topbar">
       <a class="back" href="/security/functions" aria-label="Indietro">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -9617,7 +9606,6 @@ def render_security_timers(snapshot):
   </head>
   <body>
     <div class="bg"></div>
-    <button class="refreshBtn" id="refreshBtn" type="button" title="Aggiorna stato" aria-label="Aggiorna"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5a5 5 0 1 1-9.9-1H5.02a7 7 0 1 0 12.63-4.65z"/></svg></button>
     <div class="topbar">
       <a class="back" href="/security/functions" aria-label="Indietro">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -10142,7 +10130,6 @@ def render_security_functions(snapshot):
   </head>
   <body>
     <div class="bg"></div>
-    <button class="refreshBtn" id="refreshBtn" type="button" title="Aggiorna stato" aria-label="Aggiorna"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5a5 5 0 1 1-9.9-1H5.02a7 7 0 1 0 12.63-4.65z"/></svg></button>
     <div class="topbar">
       <a class="back" href="/security" aria-label="Indietro">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -10802,7 +10789,6 @@ def render_security_functions_outputs(snapshot):
   </head>
   <body>
     <div class="bg"></div>
-    <button class="refreshBtn" id="refreshBtn" type="button" title="Aggiorna stato" aria-label="Aggiorna"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5a5 5 0 1 1-9.9-1H5.02a7 7 0 1 0 12.63-4.65z"/></svg></button>
     <div class="topbar">
       <a class="back" href="/security/functions" aria-label="Indietro">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -11229,7 +11215,6 @@ def render_index_tag_styles(snapshot):
   </head>
   <body>
     <div class="bg"></div>
-    <button class="refreshBtn" id="refreshBtn" type="button" title="Aggiorna stato" aria-label="Aggiorna"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5a5 5 0 1 1-9.9-1H5.02a7 7 0 1 0 12.63-4.65z"/></svg></button>
     <div class="top">
       <div class="bar">
         <div>
@@ -11738,7 +11723,6 @@ def render_thermostat_detail(snapshot, thermostat_id: str):
   </head>
   <body>
     <div class="bg"></div>
-    <button class="refreshBtn" id="refreshBtn" type="button" title="Aggiorna stato" aria-label="Aggiorna"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5a5 5 0 1 1-9.9-1H5.02a7 7 0 1 0 12.63-4.65z"/></svg></button>
     <div class="topbar">
       <a class="back" href="../thermostats" title="Lista termostati">&larr;</a>
       <a class="tab" id="tabTemp" href="#temperature">Temperatura</a>
@@ -12663,11 +12647,6 @@ def render_logs(snapshot):
   </head>
   <body>
     <div class="bg"></div>
-    <button class="refreshBtn" id="refreshBtn" type="button" title="Aggiorna stato" aria-label="Aggiorna">
-      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-        <path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5a5 5 0 1 1-9.9-1H5.02a7 7 0 1 0 12.63-4.65z"/>
-      </svg>
-    </button>
     <div class="topbar">
       <a class="tab" href="/security">Stato</a>
       <a class="tab" href="/security/partitions">Partizioni</a>
@@ -12913,7 +12892,8 @@ def render_logs(snapshot):
         }};
       }}
 
-      document.getElementById('refreshBtn').onclick = fetchSnap;
+      const refreshBtn = document.getElementById('refreshBtn');
+      if (refreshBtn) refreshBtn.onclick = fetchSnap;
       document.getElementById('toggle').onclick = () => {{
         pollingOn = !pollingOn;
         document.getElementById('toggle').innerText = 'Auto-refresh: ' + (pollingOn ? 'ON' : 'OFF');
@@ -14137,7 +14117,6 @@ def render_thermostats(snapshot):
   </head>
   <body>
     <div class="bg"></div>
-    <button class="refreshBtn" id="refreshBtn" type="button" title="Aggiorna stato" aria-label="Aggiorna"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5a5 5 0 1 1-9.9-1H5.02a7 7 0 1 0 12.63-4.65z"/></svg></button>
     <div class="topbar">
       <a class="back" href="/index_debug" title="index_debug" aria-label="Indietro">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -14319,7 +14298,6 @@ def render_thermostat_detail(snapshot, thermostat_id: str):
   </head>
   <body>
     <div class="bg"></div>
-    <button class="refreshBtn" id="refreshBtn" type="button" title="Aggiorna stato" aria-label="Aggiorna"><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.65 6.35A7.95 7.95 0 0 0 12 4V1L7 6l5 5V7c2.76 0 5 2.24 5 5a5 5 0 1 1-9.9-1H5.02a7 7 0 1 0 12.63-4.65z"/></svg></button>
     <div class="topbar">
       <a class="back" href="../thermostats" title="Termostati" aria-label="Indietro">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">

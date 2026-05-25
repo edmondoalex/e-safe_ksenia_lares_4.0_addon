@@ -586,3 +586,14 @@ File toccati:
 - ksenia_lares_addon/app/wscall.py
 - ksenia_lares_addon/config.yaml
 - NOTES_FOR_AGENT.md
+
+## 2026-05-25 - Rimozione pulsante refresh flottante Security UI
+- Rimossi i pulsanti flottanti `refreshBtn` con icona refresh dalle pagine Security UI, evitando il controllo visibile in alto/laterale.
+- Lasciati invariati i pulsanti `Aggiorna` interni alle pagine elenco/preferiti.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.94` (fix UI richiesto dall'utente).
+
+File toccati:
+- ksenia_lares_addon/app/debug_server.py
+- ksenia_lares_addon/_security_page.html
+- ksenia_lares_addon/config.yaml
+- NOTES_FOR_AGENT.md
