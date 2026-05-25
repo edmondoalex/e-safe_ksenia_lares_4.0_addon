@@ -68,9 +68,10 @@ Send a login command to the websocket.
 :return: ID of the login session
 :rtype: int
 """
-async def ws_login(websocket, pin, _LOGGER):
+async def ws_login(websocket, pin, _LOGGER, payload_type="USER"):
     global cmd_id
-    json_cmd = addCRC('{"SENDER":"HomeAssistant", "RECEIVER":"", "CMD":"LOGIN", "ID": "1", "PAYLOAD_TYPE":"USER", "PAYLOAD":{"PIN":"' + pin + '"}, "TIMESTAMP":"' + str(int(time.time())) + '", "CRC_16":"0x0000"}')
+    ptype = str(payload_type or "USER").strip().upper() or "USER"
+    json_cmd = addCRC('{"SENDER":"HomeAssistant", "RECEIVER":"", "CMD":"LOGIN", "ID": "1", "PAYLOAD_TYPE":"' + ptype + '", "PAYLOAD":{"PIN":"' + pin + '"}, "TIMESTAMP":"' + str(int(time.time())) + '", "CRC_16":"0x0000"}')
     
     try:
         await websocket.send(json_cmd)
@@ -266,6 +267,49 @@ async def readData(websocket, login_id, _LOGGER, dispatch_unhandled=None, timeou
         if attempt < attempts:
             await asyncio.sleep(2)
     return last_payload
+
+
+async def readAllData(websocket, login_id, _LOGGER, dispatch_unhandled=None, timeout_s=20):
+    """
+    Read full panel data using the Control4 driver style:
+    CMD=READ, PAYLOAD_TYPE=ALL, PAYLOAD={ID_LOGIN, ID_ITEMS_RANGE:["ALL","ALL"]}.
+    Intended for installer diagnostics, not for normal runtime polling.
+    """
+    global cmd_id
+    cmd_id += 1
+    expected_id = str(cmd_id)
+    payload = {"ID_LOGIN": str(login_id), "ID_ITEMS_RANGE": ["ALL", "ALL"]}
+    json_cmd = addCRC(
+        '{"SENDER":"HomeAssistant","RECEIVER":"","CMD":"READ","ID":"'
+        + expected_id
+        + '","PAYLOAD_TYPE":"ALL","PAYLOAD":'
+        + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        + ',"TIMESTAMP":"'
+        + str(int(time.time()))
+        + '","CRC_16":"0x0000"}'
+    )
+    try:
+        await websocket.send(json_cmd)
+        deadline = time.time() + max(1, float(timeout_s or 20))
+        while True:
+            timeout = max(0.1, deadline - time.time())
+            if timeout <= 0:
+                _LOGGER.warning("readAllData timed out")
+                return {}
+            json_resp_states = await asyncio.wait_for(websocket.recv(), timeout=timeout)
+            response_read = json.loads(json_resp_states)
+            if response_read.get("CMD") == "READ_RES":
+                if str(response_read.get("ID")) != expected_id:
+                    _LOGGER.warning(
+                        "readAllData: READ_RES id mismatch (expected %s, got %s) - accepting reply",
+                        expected_id,
+                        response_read.get("ID"),
+                    )
+                return response_read.get("PAYLOAD") or {}
+            await _dispatch_unhandled(dispatch_unhandled, response_read)
+    except Exception as e:
+        _LOGGER.error("readAllData call failed: %r (%s)", e, type(e).__name__)
+        return {}
 
 
 """

@@ -1,6 +1,6 @@
 name: e-Safe Ksenia Lares 4.0
 slug: ksenia_lares_addon
-version: "5.2.90"
+version: "5.2.91"
 description: Add-on Home Assistant per centrale Ksenia Lares con MQTT Discovery
 startup: services
 boot: auto
@@ -31,6 +31,7 @@ options:
   ksenia_host: ""
   ksenia_port: 0
   ksenia_pin: ""
+  installer_pin: ""
   mqtt_host: "core-mosquitto"
   mqtt_port: 1883
   mqtt_user: ""
@@ -57,6 +58,7 @@ schema:
   ksenia_host: str
   ksenia_port: int
   ksenia_pin: password
+  installer_pin: password?
   mqtt_host: str
   mqtt_port: int
   mqtt_user: str?

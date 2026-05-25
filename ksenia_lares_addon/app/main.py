@@ -18,7 +18,7 @@ import websockets
 from websocketmanager import WebSocketManager
 from debug_server import LaresState, start_debug_server, set_command_handler
 from crc import addCRC
-from wscall import ws_login, writeCfgTyped
+from wscall import readAllData, readData, ws_login, writeCfgTyped
 
 
 def _load_addon_options():
@@ -86,6 +86,7 @@ def main():
     ksenia_host = _get_config_value(options, "ksenia_host", "KSENIA_HOST", "")
     ksenia_port = _get_config_int(options, "ksenia_port", "KSENIA_PORT", 0)
     ksenia_pin = _get_config_value(options, "ksenia_pin", "KSENIA_PIN", "")
+    installer_pin = _get_config_value(options, "installer_pin", "KSENIA_INSTALLER_PIN", "")
 
     mqtt_host = _get_config_value(options, "mqtt_host", "MQTT_HOST", "core-mosquitto")
     mqtt_port = _get_config_int(options, "mqtt_port", "MQTT_PORT", 1883)
@@ -3512,7 +3513,11 @@ def main():
         except Exception as exc:
             logger.error("Init domus thermostat overrides failed: %s", exc)
 
-        async def _open_command_ws(pin: str) -> tuple[object, int, bool]:
+        async def _open_command_ws(
+            pin: str,
+            login_payload_type: str = "USER",
+            log_label: str = "WS2",
+        ) -> tuple[object, int, bool]:
             """
             Open the dedicated command websocket (WS2) with bounded timeouts.
             If the plain ws:// fails or times out, fall back to wss://.
@@ -3532,26 +3537,29 @@ def main():
                         timeout=conn_timeout,
                     )
                 except Exception as exc:
-                    logger.warning(f"WS2 connect failed ({uri}): {exc}")
+                    logger.warning(f"{log_label} connect failed ({uri}): {exc}")
                     raise
                 try:
-                    login_id = await asyncio.wait_for(ws_login(ws, str(pin), logger), timeout=login_timeout)
+                    login_id = await asyncio.wait_for(
+                        ws_login(ws, str(pin), logger, payload_type=login_payload_type),
+                        timeout=login_timeout,
+                    )
                 except Exception as exc:
                     # If login phase fails, close and re-raise so caller can fall back.
                     try:
                         await ws.close()
                     except Exception:
                         pass
-                    logger.warning(f"WS2 login failed ({uri}): {exc}")
+                    logger.warning(f"{log_label} login failed ({uri}): {exc}")
                     raise
                 if not login_id or int(login_id) <= 0:
                     try:
                         await ws.close()
                     except Exception:
                         pass
-                    logger.warning(f"WS2 login_id invalid ({uri})")
+                    logger.warning(f"{log_label} login_id invalid ({uri})")
                     raise PermissionError("login_failed")
-                logger.info(f"WS2 connected via {'wss' if use_ssl else 'ws'} (login_id={login_id})")
+                logger.info(f"{log_label} connected via {'wss' if use_ssl else 'ws'} (login_id={login_id})")
                 return ws, int(login_id)
 
             uri_ws = f"ws://{ksenia_host}:{ksenia_port}/KseniaWsock"
@@ -3564,6 +3572,50 @@ def main():
             uri_wss = f"wss://{ksenia_host}:{ksenia_port}/KseniaWsock"
             ws, login_id = await _try_connect(uri_wss, use_ssl=True)
             return ws, login_id, True
+
+        def _static_counts(read_data):
+            keys = ("OUTPUTS", "SCENARIOS", "PARTITIONS", "ZONES", "CFG_SCHEDULER_TIMERS", "CFG_ACCOUNTS")
+            data = read_data if isinstance(read_data, dict) else {}
+            return {
+                key: len(data.get(key) or []) if isinstance(data.get(key), list) else 0
+                for key in keys
+            }
+
+        async def _run_installer_static_diagnostic():
+            pin = str(installer_pin or "").strip()
+            if not pin:
+                return
+            ws = None
+            normal_counts = _static_counts(getattr(manager, "_readData", None))
+            try:
+                logger.info("Installer diagnostic: starting static read comparison")
+                ws, login_id, _secure = await _open_command_ws(
+                    pin,
+                    login_payload_type="INSTALLER",
+                    log_label="WSI",
+                )
+                installer_read = await readAllData(ws, login_id, logger)
+                installer_counts = _static_counts(installer_read)
+                logger.info(
+                    "Installer diagnostic: normal=%s installer=%s",
+                    normal_counts,
+                    installer_counts,
+                )
+                more = {
+                    key: (installer_counts.get(key, 0), normal_counts.get(key, 0))
+                    for key in installer_counts
+                    if installer_counts.get(key, 0) > normal_counts.get(key, 0)
+                }
+                if more:
+                    logger.warning("Installer diagnostic: installer sees more static items: %s", more)
+            except Exception as exc:
+                logger.error("Installer diagnostic failed: %s", exc)
+            finally:
+                if ws is not None:
+                    try:
+                        await ws.close()
+                    except Exception:
+                        pass
 
         class WebCommandHub:
             """
@@ -4706,6 +4758,7 @@ def main():
         except Exception as exc:
             logger.error(f"Debug initial ingest error: {exc}")
         _sync_static_entities_from_read_data(getattr(manager, "_readData", None), "startup sync")
+        await _run_installer_static_diagnostic()
         try:
             therms = await manager.getThermostats()
             try:

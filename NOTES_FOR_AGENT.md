@@ -552,3 +552,15 @@ File toccati:
 - ksenia_lares_addon/app/websocketmanager.py
 - ksenia_lares_addon/config.yaml
 - NOTES_FOR_AGENT.md
+
+## 2026-05-25 - Diagnostica lettura con PIN installatore
+- Aggiunta opzione `installer_pin` opzionale: viene usata solo all'avvio per una sessione diagnostica separata con login `PAYLOAD_TYPE=INSTALLER`, seguendo il modello del driver Control4.
+- La diagnostica legge `READ/PAYLOAD_TYPE=ALL` con `ID_ITEMS_RANGE=["ALL","ALL"]`, confronta i conteggi statici con la lettura normale e logga se il PIN installatore vede piu' elementi.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.91` (diagnostica permessi/visibilita' dati dopo modifiche in Lares).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/app/wscall.py
+- ksenia_lares_addon/config.yaml
+- ksenia_lares_addon/README.md
+- NOTES_FOR_AGENT.md

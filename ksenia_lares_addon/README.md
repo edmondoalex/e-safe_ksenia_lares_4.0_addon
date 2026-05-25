@@ -29,6 +29,7 @@ Le principali opzioni sono in **Configurazione** dell’add-on:
 - `ksenia_host` (obbligatorio): IP/hostname della centrale (es. `192.168.2.10`)
 - `ksenia_port` (obbligatorio): porta HTTP/WS della centrale (tipicamente `80`)
 - `ksenia_pin` (obbligatorio): PIN per comandi
+- `installer_pin` (opzionale): PIN installatore usato solo per diagnostica lettura statica; non viene usato per comandi o realtime
 
 - `mqtt_host`: host broker MQTT (default `core-mosquitto`)
 - `mqtt_port`: porta broker (default `1883`)
