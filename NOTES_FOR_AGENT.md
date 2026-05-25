@@ -564,3 +564,14 @@ File toccati:
 - ksenia_lares_addon/config.yaml
 - ksenia_lares_addon/README.md
 - NOTES_FOR_AGENT.md
+
+## 2026-05-25 - Diagnostica installer non bloccante
+- La diagnostica `installer_pin` viene avviata in background dopo la pubblicazione discovery, cosi' un timeout della lettura installer non ritarda l'avvio operativo.
+- Ridotto il timeout `READ ALL` installer a 6s e declassati i timeout a warning, perche' il log utente mostra lettura normale gia' completa ma `READ ALL` installer non risponde.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.92` (fix: diagnostica installer non deve bloccare startup/allineamento).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/app/wscall.py
+- ksenia_lares_addon/config.yaml
+- NOTES_FOR_AGENT.md

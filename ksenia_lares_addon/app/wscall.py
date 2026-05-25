@@ -307,8 +307,11 @@ async def readAllData(websocket, login_id, _LOGGER, dispatch_unhandled=None, tim
                     )
                 return response_read.get("PAYLOAD") or {}
             await _dispatch_unhandled(dispatch_unhandled, response_read)
+    except asyncio.TimeoutError:
+        _LOGGER.warning("readAllData timed out")
+        return {}
     except Exception as e:
-        _LOGGER.error("readAllData call failed: %r (%s)", e, type(e).__name__)
+        _LOGGER.warning("readAllData call failed: %r (%s)", e, type(e).__name__)
         return {}
 
 

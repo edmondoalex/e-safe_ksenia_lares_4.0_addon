@@ -3594,7 +3594,7 @@ def main():
                     login_payload_type="INSTALLER",
                     log_label="WSI",
                 )
-                installer_read = await readAllData(ws, login_id, logger)
+                installer_read = await readAllData(ws, login_id, logger, timeout_s=6)
                 installer_counts = _static_counts(installer_read)
                 logger.info(
                     "Installer diagnostic: normal=%s installer=%s",
@@ -4758,7 +4758,6 @@ def main():
         except Exception as exc:
             logger.error(f"Debug initial ingest error: {exc}")
         _sync_static_entities_from_read_data(getattr(manager, "_readData", None), "startup sync")
-        await _run_installer_static_diagnostic()
         try:
             therms = await manager.getThermostats()
             try:
@@ -4799,6 +4798,10 @@ def main():
                 pass
             try:
                 _seed_output_states(state.snapshot())
+            except Exception:
+                pass
+            try:
+                asyncio.create_task(_run_installer_static_diagnostic())
             except Exception:
                 pass
         except Exception as exc:
