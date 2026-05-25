@@ -4089,6 +4089,26 @@ def main():
 
             async def _coro():
                 sess = await web_hub.get_session(token)
+                def _scenario_cat() -> str:
+                    try:
+                        snap = state.snapshot()
+                        ent = next(
+                            (
+                                x
+                                for x in (snap.get("entities") or [])
+                                if x.get("type") == "scenarios" and int(x.get("id") or -1) == entity_id_int
+                            ),
+                            None,
+                        )
+                        st = (ent or {}).get("static") or {}
+                        return str(st.get("CAT") or "").strip().upper()
+                    except Exception:
+                        return ""
+
+                security_scenario = entity_type == "scenarios" and _scenario_cat() in ("ARM", "DISARM", "PARTIAL")
+                if security_scenario and not sess:
+                    return {"ok": False, "error": ("invalid_token" if token else "pin_session_required")}
+
                 # If configured, security commands must go through the dedicated "PIN session" WS (ws2)
                 # so the UI can use any panel PIN without storing it in the add-on config.
                 requires_session = bool(web_pin_session_required)

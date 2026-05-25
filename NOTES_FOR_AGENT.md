@@ -528,3 +528,12 @@ File toccati:
 - ksenia_lares_addon/app/wscall.py
 - ksenia_lares_addon/app/websocketmanager.py
 - ksenia_lares_addon/config.yaml
+
+## 2026-05-25 - Scenari sicurezza sempre via sessione PIN
+- Gli scenari con `CAT=ARM/DISARM/PARTIAL` ora richiedono sempre una sessione PIN WS2 valida dalla UI, evitando fallback su WS1 e rifiuti della centrale.
+- Se manca/decade il token, il backend risponde `pin_session_required` o `invalid_token` cosi' la UI apre il PIN e ritenta.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.88` (fix: scenari allarme rifiutati via WS1).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/config.yaml
