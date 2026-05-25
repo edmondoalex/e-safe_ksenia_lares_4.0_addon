@@ -575,3 +575,14 @@ File toccati:
 - ksenia_lares_addon/app/wscall.py
 - ksenia_lares_addon/config.yaml
 - NOTES_FOR_AGENT.md
+
+## 2026-05-25 - Diagnostica installer su PRG specifici
+- Rimossa dalla diagnostica la lettura installer `READ/PAYLOAD_TYPE=ALL`, che sulla centrale utente va in timeout.
+- Aggiunte letture diagnostiche `PRG_ZONES`, `PRG_PARTITIONS`, `PRG_OUTPUTS` con `ID_ITEMS_RANGE=["ALL","ALL"]`, come sequenza usata dal driver Control4.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.93` (diagnostica installer mirata senza `READ ALL`).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/app/wscall.py
+- ksenia_lares_addon/config.yaml
+- NOTES_FOR_AGENT.md

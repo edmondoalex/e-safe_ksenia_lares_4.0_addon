@@ -315,6 +315,62 @@ async def readAllData(websocket, login_id, _LOGGER, dispatch_unhandled=None, tim
         return {}
 
 
+async def readProgrammedData(websocket, login_id, _LOGGER, payload_type: str, dispatch_unhandled=None, timeout_s=6):
+    """
+    Read installer/programming sections using the Control4 driver style:
+    PAYLOAD_TYPE=PRG_ZONES / PRG_PARTITIONS / PRG_OUTPUTS with
+    ID_ITEMS_RANGE=["ALL","ALL"].
+    """
+    global cmd_id
+    ptype = str(payload_type or "").strip().upper()
+    if ptype not in ("PRG_ZONES", "PRG_PARTITIONS", "PRG_OUTPUTS"):
+        return {}
+    cmd_id += 1
+    expected_id = str(cmd_id)
+    payload = {"ID_LOGIN": str(login_id), "ID_ITEMS_RANGE": ["ALL", "ALL"]}
+    json_cmd = addCRC(
+        '{"SENDER":"HomeAssistant","RECEIVER":"","CMD":"READ","ID":"'
+        + expected_id
+        + '","PAYLOAD_TYPE":"'
+        + ptype
+        + '","PAYLOAD":'
+        + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        + ',"TIMESTAMP":"'
+        + str(int(time.time()))
+        + '","CRC_16":"0x0000"}'
+    )
+    try:
+        await websocket.send(json_cmd)
+        deadline = time.time() + max(1, float(timeout_s or 6))
+        while True:
+            timeout = max(0.1, deadline - time.time())
+            if timeout <= 0:
+                _LOGGER.warning("readProgrammedData(%s) timed out", ptype)
+                return {}
+            json_resp_states = await asyncio.wait_for(websocket.recv(), timeout=timeout)
+            response_read = json.loads(json_resp_states)
+            if response_read.get("CMD") == "READ_RES":
+                resp_ptype = str(response_read.get("PAYLOAD_TYPE") or "").strip().upper()
+                if resp_ptype and resp_ptype != ptype:
+                    await _dispatch_unhandled(dispatch_unhandled, response_read)
+                    continue
+                if str(response_read.get("ID")) != expected_id:
+                    _LOGGER.warning(
+                        "readProgrammedData(%s): READ_RES id mismatch (expected %s, got %s) - accepting reply",
+                        ptype,
+                        expected_id,
+                        response_read.get("ID"),
+                    )
+                return response_read.get("PAYLOAD") or {}
+            await _dispatch_unhandled(dispatch_unhandled, response_read)
+    except asyncio.TimeoutError:
+        _LOGGER.warning("readProgrammedData(%s) timed out", ptype)
+        return {}
+    except Exception as e:
+        _LOGGER.warning("readProgrammedData(%s) failed: %r (%s)", ptype, e, type(e).__name__)
+        return {}
+
+
 """
 Read scheduler timers/holidays configuration (Programmatori Orari).
 """

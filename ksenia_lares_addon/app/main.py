@@ -18,7 +18,7 @@ import websockets
 from websocketmanager import WebSocketManager
 from debug_server import LaresState, start_debug_server, set_command_handler
 from crc import addCRC
-from wscall import readAllData, readData, ws_login, writeCfgTyped
+from wscall import readData, readProgrammedData, ws_login, writeCfgTyped
 
 
 def _load_addon_options():
@@ -3581,6 +3581,14 @@ def main():
                 for key in keys
             }
 
+        def _payload_counts(payload):
+            data = payload if isinstance(payload, dict) else {}
+            counts = {}
+            for key, value in data.items():
+                if isinstance(value, list):
+                    counts[str(key)] = len(value)
+            return counts
+
         async def _run_installer_static_diagnostic():
             pin = str(installer_pin or "").strip()
             if not pin:
@@ -3594,20 +3602,15 @@ def main():
                     login_payload_type="INSTALLER",
                     log_label="WSI",
                 )
-                installer_read = await readAllData(ws, login_id, logger, timeout_s=6)
-                installer_counts = _static_counts(installer_read)
+                programmed = {}
+                for payload_type in ("PRG_ZONES", "PRG_PARTITIONS", "PRG_OUTPUTS"):
+                    payload = await readProgrammedData(ws, login_id, logger, payload_type)
+                    programmed[payload_type] = _payload_counts(payload)
                 logger.info(
-                    "Installer diagnostic: normal=%s installer=%s",
+                    "Installer diagnostic: normal=%s programmed=%s",
                     normal_counts,
-                    installer_counts,
+                    programmed,
                 )
-                more = {
-                    key: (installer_counts.get(key, 0), normal_counts.get(key, 0))
-                    for key in installer_counts
-                    if installer_counts.get(key, 0) > normal_counts.get(key, 0)
-                }
-                if more:
-                    logger.warning("Installer diagnostic: installer sees more static items: %s", more)
             except Exception as exc:
                 logger.error("Installer diagnostic failed: %s", exc)
             finally:
