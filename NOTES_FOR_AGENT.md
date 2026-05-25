@@ -518,3 +518,14 @@ File toccati:
 File toccati:
 - ksenia_lares_addon/app/debug_server.py
 - ksenia_lares_addon/config.yaml
+
+## 2026-05-25 - Lettura iniziale robusta dati statici
+- `readData()` ora accumula piu' risposte `READ_RES` entro timeout, invece di usare solo la prima risposta parziale della centrale.
+- Se mancano chiavi statiche importanti (es. `SCENARIOS`, timer, account), il manager fa un retry mirato prima di pubblicare UI/MQTT.
+- La lettura iniziale dei log usa timeout breve per non rallentare/rompere l'avvio quando la centrale non risponde a `LOGS`.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.86` (fix: scenari mancanti in UI dopo avvio parziale).
+
+File toccati:
+- ksenia_lares_addon/app/wscall.py
+- ksenia_lares_addon/app/websocketmanager.py
+- ksenia_lares_addon/config.yaml
