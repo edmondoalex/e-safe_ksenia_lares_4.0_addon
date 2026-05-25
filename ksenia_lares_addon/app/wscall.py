@@ -204,27 +204,68 @@ Extract the initial data from the Ksenia panel.
 :return: Initial data from the Ksenia panel
 :rtype: dict
 """
-async def readData(websocket,login_id,_LOGGER):
+_READDATA_REQUIRED_KEYS = ("OUTPUTS", "SCENARIOS", "PARTITIONS", "ZONES")
+
+
+def _read_data_missing_keys(payload):
+    if not isinstance(payload, dict):
+        return list(_READDATA_REQUIRED_KEYS)
+    return [k for k in _READDATA_REQUIRED_KEYS if not isinstance(payload.get(k), list)]
+
+
+async def readData(websocket, login_id, _LOGGER, dispatch_unhandled=None, timeout_s=20, max_attempts=2):
     _LOGGER.info("extracting data")
     global cmd_id
-    cmd_id += 1
-    json_cmd = addCRC(
+    last_payload = {}
+    attempts = max(1, int(max_attempts or 1))
+    for attempt in range(1, attempts + 1):
+        cmd_id += 1
+        expected_id = str(cmd_id)
+        json_cmd = addCRC(
             '{"SENDER":"HomeAssistant","RECEIVER":"","CMD":"READ","ID":"'
-            + str(cmd_id)
+            + expected_id
             + '","PAYLOAD_TYPE":"MULTI_TYPES","PAYLOAD":{"ID_LOGIN":"'
             + str(login_id)
             + '","ID_READ":"1","TYPES":'+str(read_types)+'},"TIMESTAMP":"'
             + str(int(time.time()))
             + '","CRC_16":"0x0000"}'
         )
-    try:
-        await websocket.send(json_cmd)
-        json_resp_states = await websocket.recv()
-        response_read = json.loads(json_resp_states)
-    except Exception as e:
-        _LOGGER.error(f"readData call failed: {e}")
-        _LOGGER.error(response_read)
-    return response_read["PAYLOAD"]
+        try:
+            await websocket.send(json_cmd)
+            deadline = time.time() + max(1, float(timeout_s or 20))
+            while True:
+                timeout = max(0.1, deadline - time.time())
+                if timeout <= 0:
+                    _LOGGER.warning("readData attempt %s/%s timed out", attempt, attempts)
+                    break
+                json_resp_states = await asyncio.wait_for(websocket.recv(), timeout=timeout)
+                response_read = json.loads(json_resp_states)
+                if response_read.get("CMD") == "READ_RES":
+                    payload = response_read.get("PAYLOAD") or {}
+                    if str(response_read.get("ID")) != expected_id:
+                        _LOGGER.warning(
+                            "readData: READ_RES id mismatch (expected %s, got %s) - accepting reply",
+                            expected_id,
+                            response_read.get("ID"),
+                        )
+                    if isinstance(payload, dict):
+                        last_payload = payload
+                    missing = _read_data_missing_keys(payload)
+                    if not missing:
+                        return payload
+                    _LOGGER.warning(
+                        "readData incomplete attempt %s/%s: missing %s",
+                        attempt,
+                        attempts,
+                        ",".join(missing),
+                    )
+                    break
+                await _dispatch_unhandled(dispatch_unhandled, response_read)
+        except Exception as e:
+            _LOGGER.error("readData call failed: %r (%s)", e, type(e).__name__)
+        if attempt < attempts:
+            await asyncio.sleep(2)
+    return last_payload
 
 
 """

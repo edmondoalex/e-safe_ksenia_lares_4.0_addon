@@ -830,7 +830,12 @@ class WebSocketManager:
                 except Exception:
                     pass
                 self._logger.info("Extracting initial data")
-                self._readData = await readData(self._ws, self._loginId, self._logger)
+                self._readData = await readData(
+                    self._ws,
+                    self._loginId,
+                    self._logger,
+                    dispatch_unhandled=self.handle_message,
+                )
                 # Fetch full thermostat config (mobile app uses a dedicated PAYLOAD_TYPE and returns full schedules).
                 try:
                     self._logger.info("Reading thermostat config (CFG_THERMOSTATS)")
@@ -930,7 +935,12 @@ class WebSocketManager:
                 except Exception:
                     pass
                 self._logger.info("Extracting initial data")
-                self._readData = await readData(self._ws, self._loginId, self._logger)
+                self._readData = await readData(
+                    self._ws,
+                    self._loginId,
+                    self._logger,
+                    dispatch_unhandled=self.handle_message,
+                )
                 # Fetch full thermostat config (mobile app uses a dedicated PAYLOAD_TYPE and returns full schedules).
                 try:
                     self._logger.info("Reading thermostat config (CFG_THERMOSTATS)")

@@ -541,3 +541,14 @@ File toccati:
 - ksenia_lares_addon/app/debug_server.py
 - ksenia_lares_addon/config.yaml
 - NOTES_FOR_AGENT.md
+
+## 2026-05-25 - Validazione lettura iniziale statica
+- La `READ/MULTI_TYPES` iniziale ora accetta solo risposte `READ_RES`, smista eventuali messaggi non pertinenti al dispatcher realtime e verifica che siano presenti almeno `OUTPUTS`, `SCENARIOS`, `PARTITIONS`, `ZONES`.
+- Se la prima risposta e' incompleta, viene fatto un solo retry della stessa lettura dopo 2s; se resta incompleta, l'add-on usa comunque il payload migliore ricevuto e logga le chiavi mancanti.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.90` (fix: dopo modifiche in Lares/riavvio la prima lettura poteva restare parziale, ad esempio senza scenari).
+
+File toccati:
+- ksenia_lares_addon/app/wscall.py
+- ksenia_lares_addon/app/websocketmanager.py
+- ksenia_lares_addon/config.yaml
+- NOTES_FOR_AGENT.md
