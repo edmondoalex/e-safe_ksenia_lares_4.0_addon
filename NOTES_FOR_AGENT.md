@@ -630,3 +630,13 @@ File toccati:
 - ksenia_lares_addon/app/siaip.py
 - ksenia_lares_addon/config.yaml
 - NOTES_FOR_AGENT.md
+
+## 2026-05-26 - CRC ACK SIA-IP Lares
+- Corretto il CRC dei frame ACK SIA-IP da CCITT a CRC-16/IBM (`0xA001`, init `0x0000`), variante verificata sui frame reali Lares.
+- L'ACK ora mantiene routing/account e calcola un CRC coerente con i pacchetti in ingresso, evitando scarti per checksum non valido.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.98` (fix: Lares riceveva ACK ma continuava a segnare segnalazione SIA fallita).
+
+File toccati:
+- ksenia_lares_addon/app/siaip.py
+- ksenia_lares_addon/config.yaml
+- NOTES_FOR_AGENT.md

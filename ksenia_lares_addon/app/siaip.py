@@ -5,21 +5,23 @@ import threading
 import time
 
 
-def _crc16_ccitt(data: bytes) -> int:
-    crc = 0
+def _crc16_sia(data: bytes) -> int:
+    # SIA DC-09 uses the CRC-16/IBM bit order (poly 0xA001, init 0x0000).
+    # Ksenia frames in the field match this variant.
+    crc = 0x0000
     for b in data:
-        crc ^= b << 8
+        crc ^= b
         for _ in range(8):
-            if crc & 0x8000:
-                crc = ((crc << 1) ^ 0x1021) & 0xFFFF
+            if crc & 0x0001:
+                crc = ((crc >> 1) ^ 0xA001) & 0xFFFF
             else:
-                crc = (crc << 1) & 0xFFFF
+                crc = (crc >> 1) & 0xFFFF
     return crc & 0xFFFF
 
 
 def _build_frame(data: str) -> bytes:
     body = str(data or "").encode("ascii", errors="ignore")
-    crc = _crc16_ccitt(body)
+    crc = _crc16_sia(body)
     return b"\n" + f"{crc:04X}{len(body):04X}".encode("ascii") + body + b"\r"
 
 
