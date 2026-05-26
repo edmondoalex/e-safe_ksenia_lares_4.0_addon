@@ -1,6 +1,6 @@
 name: e-Safe Ksenia Lares 4.0
 slug: ksenia_lares_addon
-version: "5.2.95"
+version: "5.2.96"
 description: Add-on Home Assistant per centrale Ksenia Lares con MQTT Discovery
 startup: services
 boot: auto
@@ -16,9 +16,11 @@ ingress_entry: /menu
 ports:
   8080/tcp: 18888
   8081/tcp: 18889
+  10002/tcp: 10002
 ports_description:
   8080/tcp: Debug UI (index_debug)
   8081/tcp: Security UI (/security)
+  10002/tcp: Ricevitore SIA-IP TCP
 # Nota: [PORT:8080] è la porta del container; sull'host la trovi su 18888.
 webui: http://[HOST]:[PORT:8080]/menu
 
@@ -53,6 +55,11 @@ options:
   icon_http_base_url: ""
   icon_http_token: ""
   icon_http_timeout: 3
+  sia_ip_enabled: false
+  sia_ip_port: 10002
+  sia_ip_account_filter: ""
+  sia_ip_store_events: 200
+  sia_ip_debug: false
 
 schema:
   ksenia_host: str
@@ -77,3 +84,8 @@ schema:
   icon_http_base_url: str?
   icon_http_token: password?
   icon_http_timeout: int?
+  sia_ip_enabled: bool?
+  sia_ip_port: int?
+  sia_ip_account_filter: str?
+  sia_ip_store_events: int?
+  sia_ip_debug: bool?

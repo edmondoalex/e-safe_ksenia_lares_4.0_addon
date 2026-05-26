@@ -19,6 +19,7 @@ from websocketmanager import WebSocketManager
 from debug_server import LaresState, start_debug_server, set_command_handler
 from crc import addCRC
 from wscall import readData, readProgrammedData, ws_login, writeCfgTyped
+from siaip import SiaIpReceiver
 
 
 def _load_addon_options():
@@ -130,6 +131,11 @@ def main():
         "WS_RECONNECT_COOLDOWN_SEC",
         8,
     )
+    sia_ip_enabled = _get_config_bool(options, "sia_ip_enabled", "SIA_IP_ENABLED", False)
+    sia_ip_port = _get_config_int(options, "sia_ip_port", "SIA_IP_PORT", 10002)
+    sia_ip_account_filter = _get_config_value(options, "sia_ip_account_filter", "SIA_IP_ACCOUNT_FILTER", "")
+    sia_ip_store_events = _get_config_int(options, "sia_ip_store_events", "SIA_IP_STORE_EVENTS", 200)
+    sia_ip_debug = _get_config_bool(options, "sia_ip_debug", "SIA_IP_DEBUG", False)
 
     if not ksenia_host or not ksenia_port or not ksenia_pin:
         logger.critical(
@@ -144,6 +150,12 @@ def main():
         logger.info("Debug output verboso attivato (output_debug_verbose=true).")
 
     state = LaresState()
+    state.set_sia_status(
+        enabled=sia_ip_enabled,
+        host="0.0.0.0",
+        port=sia_ip_port,
+        listening=False,
+    )
     start_debug_server(state, port=debug_ui_port)
     start_debug_server(state, port=security_ui_port)
     logger.info("Debug UI attiva (usa 'Apri interfaccia web' dell'add-on / Ingress).")
@@ -1748,6 +1760,7 @@ def main():
             "panel": _disc_device(snapshot, "panel", "Reset/Rapidi"),
             "accounts": _disc_device(snapshot, "accounts", "Utenti"),
             "systems": _disc_device(snapshot, "systems", "Sistema"),
+            "sia": _disc_device(snapshot, "sia", "SIA-IP"),
         }
 
         def _apply_device(payload: dict, group: str) -> dict:
@@ -2241,6 +2254,57 @@ def main():
             if _disc_publish("button", obj_id, payload):
                 published += 1
 
+        # SIA-IP receiver -> summary sensors
+        sia_state_topic = f"{mqtt_prefix}/sia_ip/state"
+        sia_binary_topics = {
+            "alarm": f"{mqtt_prefix}/sia_ip/alarm",
+            "trouble": f"{mqtt_prefix}/sia_ip/trouble",
+        }
+        for suffix, name, value_template, icon in (
+            ("state", "SIA-IP Stato", "{{ value_json.state | default('unknown') }}", "mdi:shield-search"),
+            ("last_event", "SIA-IP Ultimo evento", "{{ value_json.last_description | default('') }}", "mdi:format-list-bulleted"),
+            ("last_code", "SIA-IP Ultimo codice", "{{ value_json.last_code | default('') }}", "mdi:counter"),
+            ("last_zone", "SIA-IP Ultima zona", "{{ value_json.last_zone | default('') }}", "mdi:map-marker-alert"),
+            ("active_alarms", "SIA-IP Allarmi attivi", "{{ value_json.active_alarms | default([]) | join(', ') }}", "mdi:alarm-light"),
+            ("active_troubles", "SIA-IP Trouble attivi", "{{ value_json.active_troubles | default([]) | join(', ') }}", "mdi:alert-outline"),
+        ):
+            obj_id = f"{mqtt_prefix_slug}_sia_{suffix}"
+            payload = {
+                "name": name,
+                "unique_id": obj_id,
+                "state_topic": sia_state_topic,
+                "value_template": value_template,
+                "icon": icon,
+                "availability_topic": f"{mqtt_prefix}/status",
+                "payload_available": "online",
+                "payload_not_available": "offline",
+                "default_entity_id": f"sensor.{obj_id}",
+            }
+            payload = _apply_device(payload, "sia")
+            if _disc_publish("sensor", obj_id, payload):
+                published += 1
+        for suffix, name, topic, dev_class, icon in (
+            ("alarm", "SIA-IP Allarme", sia_binary_topics["alarm"], "safety", "mdi:alarm-light"),
+            ("trouble", "SIA-IP Trouble", sia_binary_topics["trouble"], "problem", "mdi:alert-circle"),
+        ):
+            obj_id = f"{mqtt_prefix_slug}_sia_{suffix}"
+            payload = {
+                "name": name,
+                "unique_id": obj_id,
+                "state_topic": topic,
+                "payload_on": "ON",
+                "payload_off": "OFF",
+                "device_class": dev_class,
+                "icon": icon,
+                "availability_topic": f"{mqtt_prefix}/status",
+                "payload_available": "online",
+                "payload_not_available": "offline",
+                "default_entity_id": f"binary_sensor.{obj_id}",
+            }
+            payload = _apply_device(payload, "sia")
+            if _disc_publish("binary_sensor", obj_id, payload):
+                published += 1
+
         # Accounts -> switch (enable/disable users)
         for e in entities:
             et = str(e.get("type") or "").lower()
@@ -2322,6 +2386,50 @@ def main():
                 published += 1
         logger.info(f"MQTT discovery: entities={len(entities)} per_type={per_type} published={published}")
         return published
+
+    def publish_sia_state(sia_snapshot=None):
+        try:
+            sia = sia_snapshot if isinstance(sia_snapshot, dict) else state.get_sia_snapshot()
+            last = sia.get("last_event") if isinstance(sia.get("last_event"), dict) else {}
+            alarms = sia.get("active_alarms") if isinstance(sia.get("active_alarms"), dict) else {}
+            troubles = sia.get("active_troubles") if isinstance(sia.get("active_troubles"), dict) else {}
+            alarm_labels = []
+            for ev in alarms.values():
+                if not isinstance(ev, dict):
+                    continue
+                label = str(ev.get("zone") or ev.get("code") or ev.get("description") or "").strip()
+                if label:
+                    alarm_labels.append(label)
+            trouble_labels = []
+            for ev in troubles.values():
+                if not isinstance(ev, dict):
+                    continue
+                label = str(ev.get("code") or ev.get("description") or "").strip()
+                if label:
+                    trouble_labels.append(label)
+            panel_state = "alarm" if alarms else ("trouble" if troubles else ("ok" if sia.get("listening") else "unknown"))
+            payload = {
+                "state": panel_state,
+                "listening": bool(sia.get("listening")),
+                "enabled": bool(sia.get("enabled")),
+                "last_code": last.get("code") or "",
+                "last_category": last.get("category") or "",
+                "last_description": last.get("description") or "",
+                "last_zone": last.get("zone") or "",
+                "last_partition": last.get("partition") or "",
+                "last_raw": last.get("raw") or "",
+                "active_alarms": alarm_labels,
+                "active_troubles": trouble_labels,
+                "stats": sia.get("stats") or {},
+                "ts": int(time.time()),
+            }
+            topic = f"{mqtt_prefix}/sia_ip/state"
+            _log_mqtt("publish", topic, payload, True)
+            mqttc.publish(topic, json.dumps(payload, ensure_ascii=False), retain=True)
+            mqttc.publish(f"{mqtt_prefix}/sia_ip/alarm", "ON" if alarms else "OFF", retain=True)
+            mqttc.publish(f"{mqtt_prefix}/sia_ip/trouble", "ON" if troubles else "OFF", retain=True)
+        except Exception as exc:
+            logger.error("SIA-IP MQTT publish failed: %s", exc)
 
     def _seed_partition_states(snapshot: dict):
         try:
@@ -3373,6 +3481,52 @@ def main():
     manager.register_listener("thermostats_cfg", _on_thermostats_cfg)
     manager.register_listener("logs", lambda updates: on_status_updates("logs", updates))
     manager.register_listener("schedulers", lambda updates: on_status_updates("schedulers", updates))
+
+    sia_receiver = None
+    if sia_ip_enabled:
+        def _on_sia_event(event: dict):
+            try:
+                acct_filter = str(sia_ip_account_filter or "").strip()
+                if acct_filter and str((event or {}).get("account") or "").strip() != acct_filter:
+                    if sia_ip_debug:
+                        logger.info(
+                            "SIA-IP event ignored by account filter account=%s filter=%s",
+                            (event or {}).get("account"),
+                            acct_filter,
+                        )
+                    return
+                snap = state.apply_sia_event(event, max_events=sia_ip_store_events)
+                publish_sia_state(snap)
+            except Exception as exc:
+                logger.error("SIA-IP event handling failed: %s", exc)
+
+        try:
+            sia_receiver = SiaIpReceiver(
+                host="0.0.0.0",
+                port=sia_ip_port,
+                on_event=_on_sia_event,
+                logger=logger,
+                debug=sia_ip_debug,
+            )
+            sia_receiver.start()
+            state.set_sia_status(
+                enabled=True,
+                host="0.0.0.0",
+                port=sia_ip_port,
+                listening=True,
+            )
+            publish_sia_state()
+        except Exception as exc:
+            logger.error("SIA-IP receiver start failed: %s", exc)
+            state.set_sia_status(
+                enabled=True,
+                host="0.0.0.0",
+                port=sia_ip_port,
+                listening=False,
+            )
+            publish_sia_state()
+    else:
+        publish_sia_state()
 
     async def run():
         loop = asyncio.get_running_loop()
@@ -4805,6 +4959,10 @@ def main():
                 pass
             try:
                 asyncio.create_task(_run_installer_static_diagnostic())
+            except Exception:
+                pass
+            try:
+                publish_sia_state()
             except Exception:
                 pass
         except Exception as exc:

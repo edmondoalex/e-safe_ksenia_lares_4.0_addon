@@ -184,6 +184,17 @@ class LaresState:
         self._zones_last_seen = self._load_zones_last_seen()
         self._zones_last_seen_dirty = False
         self._zones_last_seen_last_flush = 0.0
+        self._sia = {
+            "enabled": False,
+            "host": "",
+            "port": 0,
+            "listening": False,
+            "last_event": None,
+            "events": [],
+            "stats": {"received": 0, "ack_sent": 0, "parse_unknown": 0},
+            "active_alarms": {},
+            "active_troubles": {},
+        }
 
     def set_meta(self, key: str, value):
         try:
@@ -349,6 +360,7 @@ class LaresState:
         with self._lock:
             entities = list(self._entities.values())
             meta = dict(self._meta)
+            sia = json.loads(json.dumps(self._sia, ensure_ascii=False, default=str))
         try:
             entities = [
                 e
@@ -432,7 +444,74 @@ class LaresState:
                     )
         except Exception:
             pass
-        return {"meta": meta, "entities": entities}
+        return {"meta": meta, "entities": entities, "sia": sia}
+
+    def set_sia_status(self, enabled=False, host="", port=0, listening=False):
+        with self._lock:
+            self._sia["enabled"] = bool(enabled)
+            self._sia["host"] = str(host or "")
+            try:
+                self._sia["port"] = int(port or 0)
+            except Exception:
+                self._sia["port"] = 0
+            self._sia["listening"] = bool(listening)
+            self._meta["sia_ip_enabled"] = bool(enabled)
+            self._meta["sia_ip_listening"] = bool(listening)
+        self._publish_event({"type": "sia_status", "sia": self.get_sia_snapshot()})
+
+    def get_sia_snapshot(self):
+        with self._lock:
+            return json.loads(json.dumps(self._sia, ensure_ascii=False, default=str))
+
+    def apply_sia_event(self, event: dict, max_events: int = 200):
+        if not isinstance(event, dict):
+            return self.get_sia_snapshot()
+        try:
+            max_events = max(20, min(1000, int(max_events or 200)))
+        except Exception:
+            max_events = 200
+        ev = dict(event)
+        code = str(ev.get("code") or "").upper()
+        zone = str(ev.get("zone") or "").strip()
+        part = str(ev.get("partition") or "").strip()
+        key = f"{code}:{part}:{zone}".strip(":")
+        now = time.time()
+        if not ev.get("ts"):
+            ev["ts"] = now
+        with self._lock:
+            stats = self._sia.setdefault("stats", {})
+            stats["received"] = int(stats.get("received") or 0) + 1
+            if ev.get("ack_sent"):
+                stats["ack_sent"] = int(stats.get("ack_sent") or 0) + 1
+            if str(ev.get("category") or "") == "unknown":
+                stats["parse_unknown"] = int(stats.get("parse_unknown") or 0) + 1
+            self._sia["last_event"] = ev
+            events = self._sia.setdefault("events", [])
+            events.insert(0, ev)
+            del events[max_events:]
+
+            cat = str(ev.get("category") or "").lower()
+            alarm_codes = {"BA", "FA", "PA", "HA", "TA"}
+            restore_codes = {"BR", "FR", "PR", "HR", "TR", "AR", "YR"}
+            trouble_codes = {"AT", "YT"}
+            alarms = self._sia.setdefault("active_alarms", {})
+            troubles = self._sia.setdefault("active_troubles", {})
+            if cat in ("alarm", "tamper") or code in alarm_codes:
+                alarms[key or str(ev.get("ID") or now)] = ev
+            elif code in restore_codes or cat == "restore":
+                if zone:
+                    for k in list(alarms.keys()):
+                        if k.endswith(f":{zone}") or k.endswith(zone):
+                            alarms.pop(k, None)
+                if code in ("AR", "YR"):
+                    troubles.clear()
+            if cat == "trouble" or code in trouble_codes:
+                troubles[key or str(ev.get("ID") or now)] = ev
+            elif code in ("AR", "YR"):
+                troubles.clear()
+            snap = json.loads(json.dumps(self._sia, ensure_ascii=False, default=str))
+        self._publish_event({"type": "sia_event", "sia": snap})
+        return snap
 
     def set_ws1_status(self, connected: bool):
         now = time.time()
@@ -10239,6 +10318,24 @@ def render_security_functions(snapshot):
           </svg>
         </a>
 
+        <a class="item" href="/security/functions/sia-ip">
+          <div class="left">
+            <div class="icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                <path d="M4 7h16v10H4z" stroke="currentColor" stroke-width="1.6"/>
+                <path d="M7 11h3M14 11h3M7 14h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div>
+              <div class="name">SIA-IP</div>
+              <div class="meta">Eventi ricevuti dalla centrale</div>
+            </div>
+          </div>
+          <svg class="chev" viewBox="0 0 24 24" fill="none">
+            <path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </a>
+
         <a class="item" href="/security/reset">
           <div class="left">
             <div class="icon">
@@ -10544,6 +10641,106 @@ def render_security_functions(snapshot):
   </body>
 </html>"""
     html = html.replace("<!-- OUTPUT_TAG_ITEMS -->", tag_items_html or "")
+    return html.encode("utf-8")
+
+
+def render_security_sia_ip(snapshot):
+    sia = snapshot.get("sia") if isinstance(snapshot, dict) else {}
+    if not isinstance(sia, dict):
+        sia = {}
+    stats = sia.get("stats") if isinstance(sia.get("stats"), dict) else {}
+    events = sia.get("events") if isinstance(sia.get("events"), list) else []
+    last = sia.get("last_event") if isinstance(sia.get("last_event"), dict) else {}
+    active_alarms = sia.get("active_alarms") if isinstance(sia.get("active_alarms"), dict) else {}
+    active_troubles = sia.get("active_troubles") if isinstance(sia.get("active_troubles"), dict) else {}
+    listening = bool(sia.get("listening"))
+    enabled = bool(sia.get("enabled"))
+    status = "In ascolto" if listening else ("Abilitato, non in ascolto" if enabled else "Disabilitato")
+    status_class = "ok" if listening else ("warn" if enabled else "")
+
+    def _ts(v):
+        try:
+            return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(float(v)))
+        except Exception:
+            return ""
+
+    rows = ""
+    for ev in events[:200]:
+        if not isinstance(ev, dict):
+            continue
+        raw = str(ev.get("raw") or "")
+        if len(raw) > 220:
+            raw = raw[:217] + "..."
+        rows += (
+            "<tr>"
+            f"<td>{_html_escape(_ts(ev.get('ts')))}</td>"
+            f"<td>{_html_escape(ev.get('category') or '')}</td>"
+            f"<td>{_html_escape(ev.get('code') or '')}</td>"
+            f"<td>{_html_escape(ev.get('zone') or '')}</td>"
+            f"<td>{_html_escape(ev.get('partition') or '')}</td>"
+            f"<td>{_html_escape(ev.get('description') or '')}</td>"
+            f"<td><code>{_html_escape(raw)}</code></td>"
+            "</tr>"
+        )
+    if not rows:
+        rows = '<tr><td colspan="7" class="empty">Nessun evento ricevuto</td></tr>'
+
+    html = f"""<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <meta http-equiv="Cache-Control" content="no-store, max-age=0"/>
+    <title>Ksenia Lares - SIA-IP</title>
+    <style>
+      :root {{ --bg:#05070b; --fg:#e7eaf0; --muted:rgba(255,255,255,.62); --border:rgba(255,255,255,.12); --item:rgba(255,255,255,.06); }}
+      body {{ margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; color:var(--fg); background:#05070b; }}
+      .topbar {{ position:sticky; top:0; display:flex; align-items:center; justify-content:center; height:64px; background:rgba(0,0,0,.72); border-bottom:1px solid var(--border); z-index:2; }}
+      .back {{ position:absolute; left:10px; color:var(--fg); text-decoration:none; width:42px; height:42px; display:flex; align-items:center; justify-content:center; border:1px solid var(--border); border-radius:999px; }}
+      .wrap {{ max-width:1180px; margin:0 auto; padding:22px 14px 42px; }}
+      h1 {{ font-size:22px; margin:8px 0 16px; }}
+      .grid {{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-bottom:16px; }}
+      .tile {{ background:var(--item); border:1px solid var(--border); border-radius:8px; padding:12px; min-height:64px; }}
+      .label {{ font-size:12px; color:var(--muted); }}
+      .val {{ margin-top:6px; font-size:18px; overflow-wrap:anywhere; }}
+      .ok {{ color:#62e68a; }}
+      .warn {{ color:#ffd36b; }}
+      table {{ width:100%; border-collapse:collapse; background:var(--item); border:1px solid var(--border); border-radius:8px; overflow:hidden; }}
+      th,td {{ text-align:left; padding:9px 10px; border-bottom:1px solid rgba(255,255,255,.08); font-size:13px; vertical-align:top; }}
+      th {{ color:var(--muted); font-weight:600; background:rgba(255,255,255,.04); }}
+      code {{ color:#cfe2ff; white-space:normal; word-break:break-all; }}
+      .empty {{ color:var(--muted); text-align:center; padding:24px; }}
+      @media (max-width:760px) {{ .grid {{ grid-template-columns:1fr 1fr; }} th:nth-child(7),td:nth-child(7) {{ display:none; }} }}
+    </style>
+  </head>
+  <body>
+    <div class="topbar">
+      <a class="back" href="/security/functions" aria-label="Indietro">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </a>
+      <strong>SIA-IP</strong>
+    </div>
+    <div class="wrap">
+      <h1>Eventi SIA-IP</h1>
+      <div class="grid">
+        <div class="tile"><div class="label">Ricevitore</div><div class="val {status_class}">{_html_escape(status)}</div></div>
+        <div class="tile"><div class="label">Endpoint</div><div class="val">{_html_escape(sia.get('host') or '0.0.0.0')}:{_html_escape(sia.get('port') or '')}</div></div>
+        <div class="tile"><div class="label">Eventi / ACK</div><div class="val">{int(stats.get('received') or 0)} / {int(stats.get('ack_sent') or 0)}</div></div>
+        <div class="tile"><div class="label">Attivi</div><div class="val">{len(active_alarms)} allarmi, {len(active_troubles)} trouble</div></div>
+      </div>
+      <div class="grid">
+        <div class="tile"><div class="label">Ultimo codice</div><div class="val">{_html_escape(last.get('code') or '-')}</div></div>
+        <div class="tile"><div class="label">Ultimo evento</div><div class="val">{_html_escape(last.get('description') or '-')}</div></div>
+        <div class="tile"><div class="label">Zona</div><div class="val">{_html_escape(last.get('zone') or '-')}</div></div>
+        <div class="tile"><div class="label">Partizione</div><div class="val">{_html_escape(last.get('partition') or '-')}</div></div>
+      </div>
+      <table>
+        <thead><tr><th>Ora</th><th>Tipo</th><th>Codice</th><th>Zona</th><th>Part.</th><th>Descrizione</th><th>Raw</th></tr></thead>
+        <tbody>{rows}</tbody>
+      </table>
+    </div>
+  </body>
+</html>"""
     return html.encode("utf-8")
 
 
@@ -13857,6 +14054,14 @@ class _Handler(BaseHTTPRequestHandler):
                 pass
             snap = self.state.snapshot()
             self._send(200, "text/html; charset=utf-8", render_security_functions_outputs(snap))
+            return
+        if path in ("/security/functions/sia-ip", "/security/functions/sia-ip/"):
+            try:
+                _UI_LOGGER.info("UI GET %s from %s", path, self.client_address[0])
+            except Exception:
+                pass
+            snap = self.state.snapshot()
+            self._send(200, "text/html; charset=utf-8", render_security_sia_ip(snap))
             return
         if path in ("/security/favorites", "/security/favorites/"):
             try:

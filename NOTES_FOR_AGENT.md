@@ -608,3 +608,15 @@ File toccati:
 - ksenia_lares_addon/app/wscall.py
 - ksenia_lares_addon/config.yaml
 - NOTES_FOR_AGENT.md
+
+## 2026-05-26 - Ricevitore SIA-IP addon
+- Aggiunto ricevitore TCP SIA-IP opzionale nell'addon, con ACK base DC-09, parser eventi non cifrati, filtro account, storico eventi e stato aggregato allarmi/trouble.
+- Aggiunta pagina `Funzioni -> SIA-IP` nella UI security e sensori MQTT discovery per stato, ultimo evento/codice/zona, allarmi e trouble SIA-IP.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.96` (feature: ricezione eventi SIA-IP da Lares e pubblicazione MQTT/HA).
+
+File toccati:
+- ksenia_lares_addon/app/siaip.py
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/app/debug_server.py
+- ksenia_lares_addon/config.yaml
+- NOTES_FOR_AGENT.md
