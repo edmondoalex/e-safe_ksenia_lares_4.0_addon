@@ -650,3 +650,14 @@ File toccati:
 - ksenia_lares_addon/app/siaip.py
 - ksenia_lares_addon/config.yaml
 - NOTES_FOR_AGENT.md
+
+## 2026-05-26 - Sensori SIA-IP arricchiti con nomi Lares
+- Gli eventi SIA-IP vengono arricchiti usando le anagrafiche gia' lette via WebSocket: nome zona, nome partizione e nome account/utente quando disponibili.
+- Aggiunti sensori MQTT testuali per `Inserito da`, `Disinserito da`, `Zona in allarme`, `Partizione in allarme`, ultima zona/partizione per nome e stato Lares aggregato.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.100` (feature: sensori SIA-IP leggibili con nomi Lares invece di soli codici/ID).
+
+File toccati:
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/app/siaip.py
+- ksenia_lares_addon/config.yaml
+- NOTES_FOR_AGENT.md

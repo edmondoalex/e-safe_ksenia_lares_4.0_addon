@@ -2265,6 +2265,12 @@ def main():
             ("last_event", "SIA-IP Ultimo evento", "{{ value_json.last_description | default('') }}", "mdi:format-list-bulleted"),
             ("last_code", "SIA-IP Ultimo codice", "{{ value_json.last_code | default('') }}", "mdi:counter"),
             ("last_zone", "SIA-IP Ultima zona", "{{ value_json.last_zone | default('') }}", "mdi:map-marker-alert"),
+            ("last_zone_name", "SIA-IP Ultima zona nome", "{{ value_json.last_zone_name | default('') }}", "mdi:map-marker-alert"),
+            ("last_partition_name", "SIA-IP Ultima partizione nome", "{{ value_json.last_partition_name | default('') }}", "mdi:shield-home"),
+            ("inserted_by", "SIA-IP Inserito da", "{{ value_json.inserted_by_name | default('') }}", "mdi:account-lock"),
+            ("disarmed_by", "SIA-IP Disinserito da", "{{ value_json.disarmed_by_name | default('') }}", "mdi:account-key"),
+            ("alarm_zone_name", "SIA-IP Zona in allarme", "{{ value_json.alarm_zone_name | default('') }}", "mdi:alarm-light"),
+            ("alarm_partition_name", "SIA-IP Partizione in allarme", "{{ value_json.alarm_partition_name | default('') }}", "mdi:shield-alert"),
             ("active_alarms", "SIA-IP Allarmi attivi", "{{ value_json.active_alarms | default([]) | join(', ') }}", "mdi:alarm-light"),
             ("active_troubles", "SIA-IP Trouble attivi", "{{ value_json.active_troubles | default([]) | join(', ') }}", "mdi:alert-outline"),
         ):
@@ -2387,6 +2393,116 @@ def main():
         logger.info(f"MQTT discovery: entities={len(entities)} per_type={per_type} published={published}")
         return published
 
+    def _entity_display_name(entity_type: str, entity_id) -> str:
+        try:
+            if entity_id in (None, ""):
+                return ""
+            eid = str(int(str(entity_id).strip()))
+        except Exception:
+            eid = str(entity_id or "").strip()
+        if not eid:
+            return ""
+        try:
+            snap = state.snapshot()
+            entities = snap.get("entities") or []
+        except Exception:
+            entities = []
+        if not isinstance(entities, list):
+            return ""
+        et_norm = str(entity_type or "").lower()
+        for ent in entities:
+            if not isinstance(ent, dict):
+                continue
+            if str(ent.get("type") or "").lower() != et_norm:
+                continue
+            try:
+                cur_id = str(int(str(ent.get("id")).strip()))
+            except Exception:
+                cur_id = str(ent.get("id") or "").strip()
+            if cur_id != eid:
+                continue
+            st = ent.get("static") if isinstance(ent.get("static"), dict) else {}
+            name = st.get("DES") or st.get("NM") or ent.get("name") or ""
+            return str(name or "").strip()
+        return ""
+
+    def _sia_user_name(user_id) -> str:
+        name = _entity_display_name("accounts", user_id)
+        if name:
+            return name
+        try:
+            if user_id not in (None, ""):
+                return f"Utente {int(str(user_id).strip())}"
+        except Exception:
+            pass
+        return str(user_id or "").strip()
+
+    def _sia_zone_name(zone_id) -> str:
+        name = _entity_display_name("zones", zone_id)
+        if name:
+            return name
+        try:
+            if zone_id not in (None, ""):
+                return f"Zona {int(str(zone_id).strip())}"
+        except Exception:
+            pass
+        return str(zone_id or "").strip()
+
+    def _sia_partition_name(partition_id) -> str:
+        name = _entity_display_name("partitions", partition_id)
+        if name:
+            return name
+        try:
+            if partition_id not in (None, ""):
+                return f"Partizione {int(str(partition_id).strip())}"
+        except Exception:
+            pass
+        return str(partition_id or "").strip()
+
+    def _sia_partition_ids_for_zone(zone_id) -> list[int]:
+        try:
+            zid = str(int(str(zone_id).strip()))
+        except Exception:
+            zid = str(zone_id or "").strip()
+        if not zid:
+            return []
+        try:
+            merged = state.get_merged("zones", zid)
+        except Exception:
+            merged = None
+        if not isinstance(merged, dict):
+            return []
+        st = merged.get("static") if isinstance(merged.get("static"), dict) else {}
+        try:
+            return _decode_zone_prt_partition_ids(st.get("PRT"), _partition_ids_from_state())
+        except Exception:
+            return []
+
+    def enrich_sia_event(event: dict) -> dict:
+        if not isinstance(event, dict):
+            return {}
+        ev = dict(event)
+        code = str(ev.get("code") or "").upper()
+        ident = str(ev.get("zone") or "").strip()
+        if code in ("OP", "CL", "JP") and not ev.get("user_id") and ident:
+            ev["user_id"] = ident
+            ev["user_name"] = str(ev.get("user") or "").strip() or _sia_user_name(ident)
+        if code in ("BA", "BR", "FA", "FR", "PA", "PR", "HA", "HR", "TA", "TR") and ident:
+            ev["zone_name"] = _sia_zone_name(ident)
+            if not ev.get("partition"):
+                pids = _sia_partition_ids_for_zone(ident)
+                if len(pids) == 1:
+                    ev["partition"] = str(pids[0])
+                elif len(pids) > 1:
+                    ev["partition_ids"] = [str(x) for x in pids]
+                    ev["partition_names"] = [_sia_partition_name(x) for x in pids]
+        if ev.get("partition"):
+            ev["partition_name"] = _sia_partition_name(ev.get("partition"))
+        elif isinstance(ev.get("partition_ids"), list) and ev.get("partition_ids"):
+            names = [_sia_partition_name(x) for x in ev.get("partition_ids") if x not in (None, "")]
+            ev["partition_name"] = ", ".join([x for x in names if x])
+        return ev
+
     def publish_sia_state(sia_snapshot=None):
         try:
             sia = sia_snapshot if isinstance(sia_snapshot, dict) else state.get_sia_snapshot()
@@ -2397,7 +2513,14 @@ def main():
             for ev in alarms.values():
                 if not isinstance(ev, dict):
                     continue
-                label = str(ev.get("zone") or ev.get("code") or ev.get("description") or "").strip()
+                label = str(
+                    ev.get("zone_name")
+                    or ev.get("partition_name")
+                    or ev.get("zone")
+                    or ev.get("code")
+                    or ev.get("description")
+                    or ""
+                ).strip()
                 if label:
                     alarm_labels.append(label)
             trouble_labels = []
@@ -2408,15 +2531,39 @@ def main():
                 if label:
                     trouble_labels.append(label)
             panel_state = "alarm" if alarms else ("trouble" if troubles else ("ok" if sia.get("listening") else "unknown"))
+            last_code = str(last.get("code") or "").upper()
+            last_user_name = str(last.get("user_name") or last.get("user") or "").strip()
+            inserted_by_name = last_user_name if last_code == "CL" else ""
+            disarmed_by_name = last_user_name if last_code == "OP" else ""
+            alarm_zone_name = ""
+            alarm_partition_name = ""
+            for ev in alarms.values():
+                if not isinstance(ev, dict):
+                    continue
+                if not alarm_zone_name:
+                    alarm_zone_name = str(ev.get("zone_name") or ev.get("zone") or "").strip()
+                if not alarm_partition_name:
+                    alarm_partition_name = str(ev.get("partition_name") or ev.get("partition") or "").strip()
+                if alarm_zone_name and alarm_partition_name:
+                    break
             payload = {
                 "state": panel_state,
+                "lares_state": panel_state,
                 "listening": bool(sia.get("listening")),
                 "enabled": bool(sia.get("enabled")),
                 "last_code": last.get("code") or "",
                 "last_category": last.get("category") or "",
                 "last_description": last.get("description") or "",
                 "last_zone": last.get("zone") or "",
+                "last_zone_name": last.get("zone_name") or "",
                 "last_partition": last.get("partition") or "",
+                "last_partition_name": last.get("partition_name") or "",
+                "last_user_id": last.get("user_id") or "",
+                "last_user_name": last_user_name,
+                "inserted_by_name": inserted_by_name,
+                "disarmed_by_name": disarmed_by_name,
+                "alarm_zone_name": alarm_zone_name,
+                "alarm_partition_name": alarm_partition_name,
                 "last_raw": last.get("raw") or "",
                 "active_alarms": alarm_labels,
                 "active_troubles": trouble_labels,
@@ -3495,7 +3642,7 @@ def main():
                             acct_filter,
                         )
                     return
-                snap = state.apply_sia_event(event, max_events=sia_ip_store_events)
+                snap = state.apply_sia_event(enrich_sia_event(event), max_events=sia_ip_store_events)
                 publish_sia_state(snap)
             except Exception as exc:
                 logger.error("SIA-IP event handling failed: %s", exc)

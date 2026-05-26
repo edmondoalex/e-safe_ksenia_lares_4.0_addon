@@ -147,6 +147,10 @@ def parse_sia_event(raw: bytes, remote: str = "") -> dict:
     cat, desc = descriptions.get(code, ("unknown", f"Evento SIA {code}" if code else "Evento SIA-IP"))
     event["category"] = cat
     event["description"] = desc
+    if code in ("OP", "CL", "JP") and event.get("zone"):
+        event["user_id"] = event.get("zone")
+        if event.get("user"):
+            event["user_name"] = event.get("user")
     return event
 
 
