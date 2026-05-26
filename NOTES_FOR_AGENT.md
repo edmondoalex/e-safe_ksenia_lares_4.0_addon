@@ -640,3 +640,13 @@ File toccati:
 - ksenia_lares_addon/app/siaip.py
 - ksenia_lares_addon/config.yaml
 - NOTES_FOR_AGENT.md
+
+## 2026-05-26 - Parsing qualificatore SIA-DCS
+- Il parser SIA-IP ora riconosce eventi SIA-DCS con qualificatore iniziale, es. `NJP1^installatore^` e `NRP`, estraendo `qualifier`, `code`, identificativo e utente.
+- Aggiunte descrizioni base per `JP` (accesso utente) e mantenuto `RP` come test comunicazione.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.99` (fix: eventi SIA ricevuti ma mostrati come `unknown` in UI/MQTT).
+
+File toccati:
+- ksenia_lares_addon/app/siaip.py
+- ksenia_lares_addon/config.yaml
+- NOTES_FOR_AGENT.md

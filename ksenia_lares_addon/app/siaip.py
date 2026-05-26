@@ -105,6 +105,18 @@ def parse_sia_event(raw: bytes, remote: str = "") -> dict:
         ident = str(m.group(2) or "").strip()
         if ident:
             event["zone"] = ident.lstrip("0") or "0"
+    else:
+        # SIA-DCS often uses a qualifier before the two-letter code, e.g.
+        # |NJP1^installatore^ or |NRP. Keep the qualifier and decode JP/RP.
+        qm = re.search(r"\|([A-Z])([A-Z]{2})([A-Za-z0-9]*)(?:\^([^^]*)\^)?", content)
+        if qm:
+            event["qualifier"] = qm.group(1).upper()
+            event["code"] = qm.group(2).upper()
+            ident = str(qm.group(3) or "").strip()
+            if ident:
+                event["zone"] = ident.lstrip("0") or "0"
+            if qm.group(4):
+                event["user"] = str(qm.group(4)).strip()
 
     # Partition hints vary by panel; keep this permissive.
     pm = re.search(r"(?:ri|pi|partition|partizione)\s*[:=/ ]\s*0*(\d+)", content, re.I)
@@ -129,6 +141,7 @@ def parse_sia_event(raw: bytes, remote: str = "") -> dict:
         "YR": ("restore", "Ripristino guasto sistema"),
         "CL": ("arm", "Inserimento"),
         "OP": ("disarm", "Disinserimento"),
+        "JP": ("user", "Accesso utente"),
         "RP": ("test", "Test comunicazione"),
     }
     cat, desc = descriptions.get(code, ("unknown", f"Evento SIA {code}" if code else "Evento SIA-IP"))
