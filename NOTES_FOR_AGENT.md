@@ -620,3 +620,13 @@ File toccati:
 - ksenia_lares_addon/app/debug_server.py
 - ksenia_lares_addon/config.yaml
 - NOTES_FOR_AGENT.md
+
+## 2026-05-26 - ACK SIA-IP con routing Lares
+- Il parser SIA-IP ora conserva il routing DC-09 tra sequence e account (es. `R000001L010000`) e lo riecheggia nell'ACK.
+- Fix per eventi ricevuti correttamente ma marcati da Lares come `Segnalazione SIA fallita` per ACK non conforme al frame ricevuto.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.97` (fix ACK SIA-IP per receiver/line routing Lares).
+
+File toccati:
+- ksenia_lares_addon/app/siaip.py
+- ksenia_lares_addon/config.yaml
+- NOTES_FOR_AGENT.md

@@ -54,6 +54,7 @@ def parse_sia_event(raw: bytes, remote: str = "") -> dict:
         "data": data,
         "protocol": "",
         "sequence": "",
+        "routing": "",
         "account": "",
         "code": "",
         "qualifier": "",
@@ -70,6 +71,17 @@ def parse_sia_event(raw: bytes, remote: str = "") -> dict:
     if m:
         event["protocol"] = m.group(1)
         event["sequence"] = m.group(2)
+        try:
+            rest = data[m.end():]
+            hash_pos = rest.find("#")
+            bracket_pos = rest.find("[")
+            cut_positions = [p for p in (hash_pos, bracket_pos) if p >= 0]
+            if cut_positions:
+                event["routing"] = rest[: min(cut_positions)]
+            else:
+                event["routing"] = rest
+        except Exception:
+            event["routing"] = ""
 
     m = re.search(r"#([A-Za-z0-9_-]+)", data)
     if m:
@@ -128,9 +140,10 @@ def build_ack(event: dict) -> bytes:
     if not re.match(r"^\d{4}$", sequence):
         sequence = "0000"
     account = str((event or {}).get("account") or "").strip()
+    routing = str((event or {}).get("routing") or "").strip()
     acct_part = f"#{account}" if account else ""
     # DC-09 ACK for unencrypted SIA-DCS style messages.
-    return _build_frame(f'"ACK"{sequence}L0{acct_part}[]')
+    return _build_frame(f'"ACK"{sequence}{routing}{acct_part}[]')
 
 
 class _SiaTcpHandler(socketserver.BaseRequestHandler):
