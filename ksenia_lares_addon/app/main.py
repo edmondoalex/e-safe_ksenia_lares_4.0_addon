@@ -2484,7 +2484,11 @@ def main():
         ev = dict(event)
         code = str(ev.get("code") or "").upper()
         ident = str(ev.get("zone") or "").strip()
-        if code in ("OP", "CL", "JP") and not ev.get("user_id") and ident:
+        if code in ("OP", "CL") and ident and not ev.get("partition"):
+            ev["partition"] = ident
+            ev.pop("zone", None)
+            ident = ""
+        if code == "JP" and not ev.get("user_id") and ident:
             ev["user_id"] = ident
             ev["user_name"] = str(ev.get("user") or "").strip() or _sia_user_name(ident)
         if code in ("BA", "BR", "FA", "FR", "PA", "PR", "HA", "HR", "TA", "TR") and ident:
@@ -2501,6 +2505,8 @@ def main():
         elif isinstance(ev.get("partition_ids"), list) and ev.get("partition_ids"):
             names = [_sia_partition_name(x) for x in ev.get("partition_ids") if x not in (None, "")]
             ev["partition_name"] = ", ".join([x for x in names if x])
+        if code in ("OP", "CL") and ev.get("user_id") and not ev.get("user_name"):
+            ev["user_name"] = _sia_user_name(ev.get("user_id"))
         return ev
 
     def publish_sia_state(sia_snapshot=None):

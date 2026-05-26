@@ -104,7 +104,13 @@ def parse_sia_event(raw: bytes, remote: str = "") -> dict:
         event["code"] = m.group(1).upper()
         ident = str(m.group(2) or "").strip()
         if ident:
-            event["zone"] = ident.lstrip("0") or "0"
+            ident_norm = ident.lstrip("0") or "0"
+            if event["code"] in ("OP", "CL", "UX"):
+                event["partition"] = ident_norm
+            elif event["code"] == "JP":
+                event["user_id"] = ident_norm
+            else:
+                event["zone"] = ident_norm
     else:
         # SIA-DCS often uses a qualifier before the two-letter code, e.g.
         # |NJP1^installatore^ or |NRP. Keep the qualifier and decode JP/RP.
@@ -114,7 +120,13 @@ def parse_sia_event(raw: bytes, remote: str = "") -> dict:
             event["code"] = qm.group(2).upper()
             ident = str(qm.group(3) or "").strip()
             if ident:
-                event["zone"] = ident.lstrip("0") or "0"
+                ident_norm = ident.lstrip("0") or "0"
+                if event["code"] in ("OP", "CL", "UX"):
+                    event["partition"] = ident_norm
+                elif event["code"] == "JP":
+                    event["user_id"] = ident_norm
+                else:
+                    event["zone"] = ident_norm
             if qm.group(4):
                 event["user"] = str(qm.group(4)).strip()
 
@@ -141,16 +153,18 @@ def parse_sia_event(raw: bytes, remote: str = "") -> dict:
         "YR": ("restore", "Ripristino guasto sistema"),
         "CL": ("arm", "Inserimento"),
         "OP": ("disarm", "Disinserimento"),
+        "UX": ("arm_pending", "Inserimento ritardato"),
         "JP": ("user", "Accesso utente"),
         "RP": ("test", "Test comunicazione"),
     }
     cat, desc = descriptions.get(code, ("unknown", f"Evento SIA {code}" if code else "Evento SIA-IP"))
     event["category"] = cat
     event["description"] = desc
-    if code in ("OP", "CL", "JP") and event.get("zone"):
-        event["user_id"] = event.get("zone")
-        if event.get("user"):
-            event["user_name"] = event.get("user")
+    if code == "JP" and event.get("user_id") and event.get("user"):
+        event["user_name"] = event.get("user")
+    if code in ("OP", "CL") and event.get("user"):
+        # Some Ksenia frames carry the operator between carets.
+        event["user_name"] = event.get("user")
     return event
 
 

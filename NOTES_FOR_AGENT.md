@@ -661,3 +661,14 @@ File toccati:
 - ksenia_lares_addon/app/siaip.py
 - ksenia_lares_addon/config.yaml
 - NOTES_FOR_AGENT.md
+
+## 2026-05-26 - Parsing SIA CL/OP come partizioni
+- Corretto parsing SIA-DCS: `CL`, `OP` e `UX` usano l'identificativo come partizione/area, non come utente o zona.
+- Aggiunto mapping `UX` come `Inserimento ritardato`, coerente con il ricevitore SIA esterno usato per confronto.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.101` (fix: sensori inserimento/disinserimento e partizione SIA usavano ID errati).
+
+File toccati:
+- ksenia_lares_addon/app/siaip.py
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/config.yaml
+- NOTES_FOR_AGENT.md
