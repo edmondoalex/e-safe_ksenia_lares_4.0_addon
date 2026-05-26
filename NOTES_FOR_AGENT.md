@@ -597,3 +597,14 @@ File toccati:
 - ksenia_lares_addon/_security_page.html
 - ksenia_lares_addon/config.yaml
 - NOTES_FOR_AGENT.md
+
+## 2026-05-26 - Alleggerimento WebSocket e polling log
+- Disattivato il keepalive automatico della libreria `websockets` sulle connessioni verso Lares, usando il controllo manuale gia' presente nel listener per evitare chiusure `1011 keepalive ping timeout`.
+- Ridotto il polling del registro eventi da 500 log ogni 5s a 150 log ogni 60s, con timeout piu' breve e log a warning sui timeout.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.95` (fix: ridurre carico e falsi errori durante rallentamenti/riavvii Lares).
+
+File toccati:
+- ksenia_lares_addon/app/websocketmanager.py
+- ksenia_lares_addon/app/wscall.py
+- ksenia_lares_addon/config.yaml
+- NOTES_FOR_AGENT.md

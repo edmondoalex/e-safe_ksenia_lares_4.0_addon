@@ -359,8 +359,8 @@ class WebSocketManager:
 
     async def logs_poller(self):
         # Periodically fetch logs; emit only new entries.
-        items = 500
-        poll_s = 5.0
+        items = 150
+        poll_s = 60.0
         while True:
             if not self._running:
                 await asyncio.sleep(1.0)
@@ -804,7 +804,13 @@ class WebSocketManager:
                     pass
                 uri = f"ws://{self._ip}:{self._port}/KseniaWsock"
                 self._logger.info("Connecting to WebSocket...")
-                self._ws = await websockets.connect(uri, subprotocols=["KS_WSOCK"])
+                self._ws = await websockets.connect(
+                    uri,
+                    subprotocols=["KS_WSOCK"],
+                    ping_interval=None,
+                    open_timeout=10,
+                    close_timeout=3,
+                )
                 self._loginId = await ws_login(self._ws, self._pin, self._logger)
                 if self._loginId < 0:
                     self._logger.error("WebSocket login error, retrying...")
@@ -822,7 +828,7 @@ class WebSocketManager:
                 self._logger.info("Reading system version")
                 self._systemVersion = await systemVersion(self._ws, self._loginId, self._logger)
                 self._logger.info("Reading event logs")
-                self._logs_state = await getLogs(self._ws, self._loginId, self._logger, items=500)
+                self._logs_state = await getLogs(self._ws, self._loginId, self._logger, items=150)
                 try:
                     logs = (self._logs_state or {}).get("LOGS") or []
                     if isinstance(logs, list) and logs:
@@ -908,7 +914,12 @@ class WebSocketManager:
                 uri = f"wss://{self._ip}:{self._port}/KseniaWsock"
                 self._logger.info(f"Connecting to WebSocket... {uri}")
                 self._ws = await websockets.connect(
-                    uri, ssl=ssl_context, subprotocols=["KS_WSOCK"]
+                    uri,
+                    ssl=ssl_context,
+                    subprotocols=["KS_WSOCK"],
+                    ping_interval=None,
+                    open_timeout=10,
+                    close_timeout=3,
                 )
                 self._loginId = await ws_login(self._ws, self._pin, self._logger)
                 if self._loginId < 0:
@@ -927,7 +938,7 @@ class WebSocketManager:
                 self._logger.info("Reading system version")
                 self._systemVersion = await systemVersion(self._ws, self._loginId, self._logger)
                 self._logger.info("Reading event logs")
-                self._logs_state = await getLogs(self._ws, self._loginId, self._logger, items=500)
+                self._logs_state = await getLogs(self._ws, self._loginId, self._logger, items=150)
                 try:
                     logs = (self._logs_state or {}).get("LOGS") or []
                     if isinstance(logs, list) and logs:
