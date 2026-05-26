@@ -96,22 +96,40 @@ def parse_sia_event(raw: bytes, remote: str = "") -> dict:
     else:
         content = data
 
+    # Ksenia can emit extended SIA-DCS payloads like:
+    # #0000000|Nri9/id1/CL^IR EXT 1 Piano Sud Alex^
+    km = re.search(
+        r"\|([A-Z])ri(\d+)(?:/id(\d+))?/([A-Z]{2})(?:\^([^^]*)\^)?",
+        content,
+        re.I,
+    )
+    if km:
+        event["qualifier"] = km.group(1).upper()
+        event["partition"] = str(int(km.group(2)))
+        if km.group(3):
+            event["user_id"] = str(int(km.group(3)))
+        event["code"] = km.group(4).upper()
+        if km.group(5):
+            event["label"] = str(km.group(5)).strip()
+
     # Common SIA-DCS payloads contain pieces such as /BA001, /BR001, /TA000.
-    m = re.search(r"/([A-Z]{2})([A-Za-z0-9]{0,8})", content)
-    if not m:
-        m = re.search(r"\b([A-Z]{2})(\d{0,8})\b", content)
-    if m:
-        event["code"] = m.group(1).upper()
-        ident = str(m.group(2) or "").strip()
-        if ident:
-            ident_norm = ident.lstrip("0") or "0"
-            if event["code"] in ("OP", "CL", "UX"):
-                event["partition"] = ident_norm
-            elif event["code"] == "JP":
-                event["user_id"] = ident_norm
-            else:
-                event["zone"] = ident_norm
-    else:
+    if not event.get("code"):
+        m = re.search(r"/([A-Z]{2})([A-Za-z0-9]{0,8})", content)
+        if not m:
+            m = re.search(r"\b([A-Z]{2})(\d{0,8})\b", content)
+        if m:
+            event["code"] = m.group(1).upper()
+            ident = str(m.group(2) or "").strip()
+            if ident:
+                ident_norm = ident.lstrip("0") or "0"
+                if event["code"] in ("OP", "CL", "UX"):
+                    event["partition"] = ident_norm
+                elif event["code"] == "JP":
+                    event["user_id"] = ident_norm
+                else:
+                    event["zone"] = ident_norm
+
+    if not event.get("code"):
         # SIA-DCS often uses a qualifier before the two-letter code, e.g.
         # |NJP1^installatore^ or |NRP. Keep the qualifier and decode JP/RP.
         qm = re.search(r"\|([A-Z])([A-Z]{2})([A-Za-z0-9]*)(?:\^([^^]*)\^)?", content)

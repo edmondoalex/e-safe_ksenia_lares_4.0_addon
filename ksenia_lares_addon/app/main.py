@@ -2501,12 +2501,14 @@ def main():
                     ev["partition_ids"] = [str(x) for x in pids]
                     ev["partition_names"] = [_sia_partition_name(x) for x in pids]
         if ev.get("partition"):
-            ev["partition_name"] = _sia_partition_name(ev.get("partition"))
+            ev["partition_name"] = str(ev.get("label") or "").strip() or _sia_partition_name(ev.get("partition"))
         elif isinstance(ev.get("partition_ids"), list) and ev.get("partition_ids"):
             names = [_sia_partition_name(x) for x in ev.get("partition_ids") if x not in (None, "")]
             ev["partition_name"] = ", ".join([x for x in names if x])
         if code in ("OP", "CL") and ev.get("user_id") and not ev.get("user_name"):
             ev["user_name"] = _sia_user_name(ev.get("user_id"))
+        if ev.get("label") and code in ("BA", "BR", "FA", "FR", "GA", "GR", "WA", "WR", "PA", "PR", "HA", "HR", "ZA", "ZR", "DO", "DR", "TA", "TR"):
+            ev.setdefault("zone_name", str(ev.get("label") or "").strip())
         return ev
 
     def publish_sia_state(sia_snapshot=None):

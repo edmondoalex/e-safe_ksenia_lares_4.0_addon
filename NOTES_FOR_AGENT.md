@@ -683,3 +683,14 @@ File toccati:
 - ksenia_lares_addon/app/debug_server.py
 - ksenia_lares_addon/config.yaml
 - NOTES_FOR_AGENT.md
+
+## 2026-05-26 - Parsing formato esteso Ksenia `ri/id`
+- Il parser SIA-IP ora estrae il formato esteso Ksenia `ri<partizione>/id<utente>/<codice>^<etichetta>^`, popolando partizione, utente e label.
+- Le label SIA vengono usate come nome partizione/zona quando presenti, ad esempio `IR EXT 1 Piano Sud Alex`.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.103` (fix: sensori nome partizione e inserito/disinserito da restavano vuoti con frame Ksenia estesi).
+
+File toccati:
+- ksenia_lares_addon/app/siaip.py
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/config.yaml
+- NOTES_FOR_AGENT.md
