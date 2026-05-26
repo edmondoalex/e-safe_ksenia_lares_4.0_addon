@@ -672,3 +672,14 @@ File toccati:
 - ksenia_lares_addon/app/main.py
 - ksenia_lares_addon/config.yaml
 - NOTES_FOR_AGENT.md
+
+## 2026-05-26 - Mappatura SIA Ksenia da PDF ufficiale
+- Esteso il dizionario SIA-IP con i codici Ksenia DC-09 dal PDF `Tabelle mappatura eventi Ksenia per codici SIA DC-09 e Contact ID.pdf` (zone, partizioni, periferiche, comunicazioni, alimentazione, scheda madre).
+- Aggiornata la gestione stato attivo allarmi/trouble per includere i nuovi codici allarme, ripristino e guasto.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.102` (feature: interpretazione eventi SIA piu' completa e coerente con tabella Ksenia).
+
+File toccati:
+- ksenia_lares_addon/app/siaip.py
+- ksenia_lares_addon/app/debug_server.py
+- ksenia_lares_addon/config.yaml
+- NOTES_FOR_AGENT.md

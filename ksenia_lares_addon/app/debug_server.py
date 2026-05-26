@@ -491,9 +491,19 @@ class LaresState:
             del events[max_events:]
 
             cat = str(ev.get("category") or "").lower()
-            alarm_codes = {"BA", "FA", "PA", "HA", "TA"}
-            restore_codes = {"BR", "FR", "PR", "HR", "TR", "AR", "YR"}
-            trouble_codes = {"AT", "YT"}
+            alarm_codes = {
+                "BA", "FA", "GA", "WA", "PA", "HA", "ZA", "DO",
+                "TA", "FT", "GT", "WT", "PT", "HT", "BG", "BV",
+            }
+            restore_codes = {
+                "BR", "FR", "GR", "WR", "PR", "HR", "ZR", "DR",
+                "TR", "FJ", "GJ", "WJ", "PJ", "HJ", "BJ",
+                "AR", "YR", "YQ", "YJ", "EJ", "EN", "NR", "LR", "YK", "XH",
+            }
+            trouble_codes = {
+                "AT", "YT", "YP", "YI", "YC", "NT", "LT", "YS", "XQ",
+                "BT", "ES", "EM", "JR", "CI",
+            }
             alarms = self._sia.setdefault("active_alarms", {})
             troubles = self._sia.setdefault("active_troubles", {})
             if cat in ("alarm", "tamper") or code in alarm_codes:
