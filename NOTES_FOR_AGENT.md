@@ -2,6 +2,16 @@
 
 Questo file serve a riprendere velocemente il contesto quando si riapre VS Code / una nuova sessione.
 
+## 2026-06-08 - Riduzione warning ID 0 Lares
+- I mismatch ID accettati con risposta Lares `ID=0` per `READ_RES`/`LOGS_RES` passano da warning a debug.
+- Restano warning i mismatch accettati con ID non-zero, per non nascondere anomalie reali.
+- Versione incrementata in `ksenia_lares_addon/config.yaml` a `5.2.104` (fix: log add-on saturato da mismatch ID 0 gia' accettati).
+
+File toccati:
+- ksenia_lares_addon/app/wscall.py
+- ksenia_lares_addon/config.yaml
+- NOTES_FOR_AGENT.md
+
 ## Repo
 - Percorso: `\\192.168.3.24\addons\ksenia_lares_addon`
 - Add-on Home Assistant (Supervisor) + UI Ingress + MQTT Discovery.

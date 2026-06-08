@@ -59,6 +59,11 @@ async def _dispatch_unhandled(dispatch_unhandled, message: dict):
         # Never let auxiliary dispatch break the main request/response loop.
         return
 
+
+def _log_accepted_id_mismatch(_LOGGER, message, expected_id, got_id):
+    log = _LOGGER.debug if str(got_id) in ("0", "") else _LOGGER.warning
+    log(message, expected_id, got_id)
+
 """
 Send a login command to the websocket.
 
@@ -405,7 +410,8 @@ async def readSchedulers(websocket, login_id, _LOGGER, dispatch_unhandled=None):
                     or isinstance(payload.get("CFG_HOLIDAYS"), list)
                 ):
                     if str(resp.get("ID")) != expected_id:
-                        _LOGGER.warning(
+                        _log_accepted_id_mismatch(
+                            _LOGGER,
                             "readSchedulers: READ_RES id mismatch (expected %s, got %s) - accepting reply",
                             expected_id,
                             resp.get("ID"),
@@ -450,7 +456,8 @@ async def readZones(websocket, login_id, _LOGGER, dispatch_unhandled=None):
                 # contains ZONES (this poller is the only one issuing READ ZONES).
                 if isinstance(payload, dict) and isinstance(payload.get("ZONES"), list):
                     if str(resp.get("ID")) != expected_id:
-                        _LOGGER.warning(
+                        _log_accepted_id_mismatch(
+                            _LOGGER,
                             "readZones: READ_RES id mismatch (expected %s, got %s) - accepting reply",
                             expected_id,
                             resp.get("ID"),
@@ -499,7 +506,8 @@ async def readThermostatsCfg(websocket, login_id, _LOGGER, pin: str | None = Non
             resp = json.loads(json_resp)
             if resp.get("CMD") == "READ_RES" and str(resp.get("PAYLOAD_TYPE") or "").upper() == "CFG_THERMOSTATS":
                 if str(resp.get("ID")) != expected_id:
-                    _LOGGER.warning(
+                    _log_accepted_id_mismatch(
+                        _LOGGER,
                         "readThermostatsCfg: READ_RES id mismatch (expected %s, got %s) - accepting reply",
                         expected_id,
                         resp.get("ID"),
@@ -737,7 +745,8 @@ async def getLogs(
             resp = json.loads(json_resp)
             if resp.get("CMD") == "LOGS_RES":
                 if str(resp.get("ID")) != expected_id:
-                    _LOGGER.warning(
+                    _log_accepted_id_mismatch(
+                        _LOGGER,
                         "LOGS_RES id mismatch (expected %s, got %s) - accepting reply",
                         expected_id,
                         resp.get("ID"),
