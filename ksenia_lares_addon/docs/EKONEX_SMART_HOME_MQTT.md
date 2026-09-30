@@ -30,6 +30,8 @@ An object is exported only when its existing `ui_tags.json` entry contains `smar
 
 The persisted `device_ids` map is part of the same backed-up configuration as `ui_tags.json`, so IDs survive rename, restart and restore.
 
+The add-on UI exposes **Export Smart Home** from the main menu. For each eligible object it provides an explicit export switch, normalized class selector and capability checkboxes; saving updates the same `ui_tags.json` structure. Security families are not rendered.
+
 Allowed native families are `outputs`, `scenarios`, `domus` and `thermostats`. Partitions, zone bypass, accounts/PINs, panel/reset, SIA-IP and all other security data are rejected and never appear in the catalog.
 
 ## Coordination topics
@@ -96,11 +98,16 @@ Results use stable statuses `accepted`, `confirmed`, `failed`, `timeout` and `un
   "command_id": "cmd_01K...",
   "correlation_id": "cor_01K...",
   "status": "confirmed",
+  "confirmation_source": "native_response",
   "timestamp": 1790784000
 }
 ```
 
-An envelope targeting an absent/non-whitelisted topic fails with `topic_not_catalogued`. Invalid capabilities, payloads and limits fail before dispatch. State remains authoritative on the existing Ksenia state topic; a command result is not an optimistic state update.
+`accepted` means only that the envelope passed the local allowlist and was dispatched. `confirmed` is emitted only after a successful native Ksenia response: output and cover commands require an explicit native `RESULT=OK`; thermostat writes require the native configuration response `RESULT=OK` and refresh the panel configuration; scenarios use the native execution acknowledgement. A missing or negative result never becomes `confirmed` for a correlated command. Legacy callers retain their pre-existing compatibility behavior.
+
+The bridge starts a real 20-second result deadline when it emits `accepted`. If the native operation has not completed, it publishes exactly one terminal `timeout`; a later future completion is ignored for command-result purposes, while a later real state update remains authoritative. An envelope targeting an absent/non-whitelisted topic fails with `topic_not_catalogued`. Invalid capabilities, payloads and limits fail before dispatch. State remains authoritative on the existing Ksenia state topic; a command result is not an optimistic state update.
+
+MQTT availability uses a retained Last Will of `offline` on `<mqtt_prefix>/status` (QoS 1) and publishes retained `online` from the connection callback. An ungraceful producer disconnect therefore cannot leave stale online availability.
 
 ## Operational security
 

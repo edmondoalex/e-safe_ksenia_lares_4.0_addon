@@ -10,8 +10,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 import urllib.request
 import urllib.error
+from smart_home_ui import render_smart_home_exports
 
-UI_REV = "2026-01-12.07"
+UI_REV = "2026-09-30.01"
 # Keep a code-side version so the UI shows the right value even when
 # Supervisor doesn't inject / update ADDON_VERSION (common when config.yaml isn't bundled in the container image).
 CODE_VERSION = ""
@@ -11370,6 +11371,17 @@ def render_menu(snapshot):
             <path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </a>
+
+        <a class="item" href="smart_home">
+          <div class="left">
+            <div class="icon">⌂</div>
+            <div>
+              <div class="name">Export Smart Home</div>
+              <div class="meta">Whitelist, classe e capability per e-Control Hub</div>
+            </div>
+          </div>
+          <svg class="chev" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
       </div>
     </div>
   </body>
@@ -13988,6 +14000,10 @@ class _Handler(BaseHTTPRequestHandler):
         if path in ("/menu", "/menu/"):
             snap = self.state.snapshot()
             self._send(200, "text/html; charset=utf-8", render_menu(snap))
+            return
+        if path in ("/smart_home", "/smart_home/"):
+            snap = self.state.snapshot()
+            self._send(200, "text/html; charset=utf-8", render_smart_home_exports(snap, _load_ui_tags()))
             return
         if path in ("/security/partitions", "/security/partitions/"):
             try:

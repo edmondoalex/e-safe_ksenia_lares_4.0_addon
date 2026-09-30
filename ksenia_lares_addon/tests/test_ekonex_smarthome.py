@@ -1,20 +1,32 @@
 import copy
 import json
 import sys
+import time
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
-from ekonex_smarthome import CONTRACT_PREFIX, EkonexSmartHomeBridge, set_export_entry
+from ekonex_smarthome import (
+    CONTRACT_PREFIX,
+    EkonexSmartHomeBridge,
+    configure_mqtt_availability,
+    set_export_entry,
+)
+from smart_home_ui import render_smart_home_exports
+from websocketmanager import native_command_result_ok
 
 
 class FakeMqtt:
     def __init__(self):
         self.messages = []
+        self.will = None
 
     def publish(self, topic, payload, retain=False):
         self.messages.append((topic, json.loads(payload), retain))
+
+    def will_set(self, topic, payload=None, qos=0, retain=False):
+        self.will = (topic, payload, qos, retain)
 
 
 class DoneFuture:
@@ -26,6 +38,22 @@ class DoneFuture:
 
     def result(self):
         return self.result_value
+
+
+class ManualFuture:
+    def __init__(self, result=True):
+        self.result_value = result
+        self.callbacks = []
+
+    def add_done_callback(self, callback):
+        self.callbacks.append(callback)
+
+    def result(self):
+        return self.result_value
+
+    def complete(self):
+        for callback in list(self.callbacks):
+            callback(self)
 
 
 class SmartHomeContractTests(unittest.TestCase):
@@ -82,6 +110,7 @@ class SmartHomeContractTests(unittest.TestCase):
         self.bridge.track_future(DoneFuture(True), ctx)
         results = [m for m in self.mqtt.messages if m[0].startswith(f"{CONTRACT_PREFIX}/command_result/")]
         self.assertEqual(["accepted", "confirmed"], [m[1]["status"] for m in results])
+        self.assertEqual("native_response", results[-1][1]["confirmation_source"])
         self.assertTrue(all(m[2] is False for m in results))
 
     def test_uncatalogued_and_security_commands_fail_closed(self):
@@ -106,6 +135,67 @@ class SmartHomeContractTests(unittest.TestCase):
         bridge = EkonexSmartHomeBridge(self.mqtt, "e-safe", lambda: data, lambda value: None, lambda: {"entities": [{"type": "outputs", "id": 8}]})
         _, devices = bridge.build_contract()
         self.assertEqual([], devices)
+
+    def test_plain_legacy_payload_is_unchanged(self):
+        self.bridge.build_contract()
+        ctx, payload, error = self.bridge.prepare_command("e-safe/cmd/output/7", "ON")
+        self.assertIsNone(ctx)
+        self.assertEqual("ON", payload)
+        self.assertIsNone(error)
+
+    def test_real_timeout_and_late_completion_have_one_terminal_result(self):
+        bridge = EkonexSmartHomeBridge(
+            self.mqtt,
+            "e-safe",
+            lambda: copy.deepcopy(self.config),
+            lambda value: None,
+            lambda: copy.deepcopy(self.snapshot),
+            now=lambda: 123,
+            command_timeout=0.02,
+        )
+        bridge.build_contract()
+        ctx, _, error = bridge.prepare_command(
+            "e-safe/cmd/output/7",
+            json.dumps({"command_id": "cmd_slow", "correlation_id": "cor_slow", "payload": 42}),
+        )
+        self.assertIsNone(error)
+        future = ManualFuture(True)
+        bridge.track_future(future, ctx)
+        time.sleep(0.06)
+        future.complete()
+        statuses = [m[1]["status"] for m in self.mqtt.messages if m[0].endswith("/cmd_slow")]
+        self.assertEqual(["accepted", "timeout"], statuses)
+
+    def test_mqtt_last_will_is_retained_offline(self):
+        topic = configure_mqtt_availability(self.mqtt, "e-safe")
+        self.assertEqual("e-safe/status", topic)
+        self.assertEqual(("e-safe/status", "offline", 1, True), self.mqtt.will)
+
+    def test_correlated_output_requires_explicit_native_success(self):
+        command = {"command": "ON", "require_explicit_result": True}
+        self.assertFalse(native_command_result_ok({"PAYLOAD": {"HomeAssistant": {}}}, command))
+        self.assertFalse(native_command_result_ok({"PAYLOAD": {"HomeAssistant": {"RESULT": "KO"}}}, command))
+        self.assertTrue(native_command_result_ok({"PAYLOAD": {"HomeAssistant": {"RESULT": "OK"}}}, command))
+
+    def test_legacy_output_keeps_missing_result_compatibility(self):
+        self.assertTrue(native_command_result_ok({"PAYLOAD": {"HomeAssistant": {}}}, {"command": "ON"}))
+
+    def test_ui_renders_only_smart_home_families_and_explicit_controls(self):
+        page = render_smart_home_exports(self.snapshot, self.config).decode("utf-8")
+        self.assertIn("Export Ekonex Smart Home", page)
+        self.assertIn('class="enabled"', page)
+        self.assertIn('class="device-class"', page)
+        self.assertIn('class="capabilities"', page)
+        self.assertIn("Kitchen", page)
+        self.assertNotIn("Alarm</strong>", page)
+        self.assertNotIn("Admin</strong>", page)
+
+    def test_ui_whitelist_update_preserves_existing_tag_and_visibility(self):
+        data = {"outputs": {"7": {"tag": "Luci", "visible": False}}}
+        saved = set_export_entry(data, "outputs", 7, {"enabled": True, "class": "light", "capabilities": ["on", "off"]})
+        self.assertTrue(saved["enabled"])
+        self.assertEqual("Luci", data["outputs"]["7"]["tag"])
+        self.assertFalse(data["outputs"]["7"]["visible"])
 
     def test_legacy_topic_mapping_for_all_smart_home_families(self):
         data = {}

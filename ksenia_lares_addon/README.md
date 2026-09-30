@@ -109,7 +109,9 @@ Per vedere cosa arriva:
 
 ## Ekonex Smart Home (CHANGE-2026-009)
 
-La versione 5.2.105 aggiunge un contratto MQTT additivo per e-Control Hub senza cambiare i topic operativi o MQTT Discovery esistenti. Manifest e catalogo sono pubblicati retained sotto `ekonex/v1/integrations/ksenia`; solo gli oggetti abilitati esplicitamente con `smart_home.enabled` in `ui_tags.json` vengono esportati. Partizioni, bypass, account, panel/reset e SIA-IP sono sempre esclusi.
+La versione 5.2.106 aggiunge un contratto MQTT additivo per e-Control Hub senza cambiare i topic operativi o MQTT Discovery esistenti. Manifest e catalogo sono pubblicati retained sotto `ekonex/v1/integrations/ksenia`; solo gli oggetti abilitati esplicitamente dalla pagina **Export Smart Home** (menu principale) vengono esportati. La pagina consente di scegliere classe e capability e persiste la selezione in `ui_tags.json`. Partizioni, bypass, account, panel/reset e SIA-IP sono sempre esclusi.
+
+L'availability usa Last Will retained `offline` e pubblicazione retained `online` alla connessione. I comandi correlati hanno timeout reale di 20 secondi e diventano `confirmed` solo dopo risposta nativa Ksenia affidabile.
 
 Schema, esempi di whitelist/catalogo/envelope e regole ACL sono descritti in [`docs/EKONEX_SMART_HOME_MQTT.md`](docs/EKONEX_SMART_HOME_MQTT.md).
 

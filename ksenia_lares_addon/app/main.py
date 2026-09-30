@@ -20,7 +20,7 @@ from debug_server import LaresState, start_debug_server, set_command_handler
 from crc import addCRC
 from wscall import readData, readProgrammedData, ws_login, writeCfgTyped
 from siaip import SiaIpReceiver
-from ekonex_smarthome import EkonexSmartHomeBridge, set_export_entry
+from ekonex_smarthome import EkonexSmartHomeBridge, configure_mqtt_availability, set_export_entry
 
 
 def _load_addon_options():
@@ -184,6 +184,7 @@ def main():
             pass
 
     mqttc = _create_mqtt_client()
+    configure_mqtt_availability(mqttc, mqtt_prefix)
     def _on_connect(client, userdata, flags, reason_code, properties=None):
         if mqtt_debug_verbose:
             logger.info(f"[MQTT] connesso rc={reason_code} flags={flags}")
@@ -296,7 +297,7 @@ def main():
 
                 async def _coro_out():
                     if action == "on":
-                        ok = await mgr.turnOnOutput(target_id)
+                        ok = await mgr.turnOnOutput(target_id, require_explicit_result=command_ctx is not None)
                         if output_debug_verbose:
                             logger.info("MQTT cmd/output %s -> ON ok=%s", target_id, ok)
                         if ok:
@@ -311,7 +312,7 @@ def main():
                                 pass
                         return ok
                     if action == "off":
-                        ok = await mgr.turnOffOutput(target_id)
+                        ok = await mgr.turnOffOutput(target_id, require_explicit_result=command_ctx is not None)
                         if output_debug_verbose:
                             logger.info("MQTT cmd/output %s -> OFF ok=%s", target_id, ok)
                         if ok:
@@ -336,7 +337,7 @@ def main():
                             sta_now = ""
                         action_inner = "off" if sta_now == "ON" else "on"
                         if action_inner == "off":
-                            ok = await mgr.turnOffOutput(target_id)
+                            ok = await mgr.turnOffOutput(target_id, require_explicit_result=command_ctx is not None)
                             if output_debug_verbose:
                                 logger.info("MQTT cmd/output %s -> OFF(ok toggle) ok=%s", target_id, ok)
                             if ok:
@@ -350,7 +351,7 @@ def main():
                                 except Exception:
                                     pass
                             return ok
-                        ok = await mgr.turnOnOutput(target_id)
+                        ok = await mgr.turnOnOutput(target_id, require_explicit_result=command_ctx is not None)
                         if output_debug_verbose:
                             logger.info("MQTT cmd/output %s -> ON(ok toggle) ok=%s", target_id, ok)
                         if ok:
@@ -369,7 +370,11 @@ def main():
                             bval = max(0, min(100, int(brightness)))
                         except Exception:
                             return False
-                        ok = await mgr.turnOnOutput(target_id, brightness=bval)
+                        ok = await mgr.turnOnOutput(
+                            target_id,
+                            brightness=bval,
+                            require_explicit_result=command_ctx is not None,
+                        )
                         if output_debug_verbose:
                             logger.info("MQTT cmd/output %s -> brightness=%s ok=%s", target_id, bval, ok)
                         if ok:
@@ -404,7 +409,7 @@ def main():
                             except Exception:
                                 return False
                             pos = max(0, min(100, pos))
-                            ok = await mgr.setCoverPosition(target_id, pos)
+                            ok = await mgr.setCoverPosition(target_id, pos, require_explicit_result=command_ctx is not None)
                             if ok:
                                 patch = {"ID": str(target_id), "POS": str(pos)}
                                 try:
@@ -421,7 +426,7 @@ def main():
                             except Exception:
                                 return False
                             pos = max(0, min(100, pos))
-                            ok = await mgr.setCoverPosition(target_id, pos)
+                            ok = await mgr.setCoverPosition(target_id, pos, require_explicit_result=command_ctx is not None)
                             if ok:
                                 patch = {"ID": str(target_id), "POS": str(pos)}
                                 try:
@@ -433,7 +438,7 @@ def main():
                             return ok
 
                         if p in ("OPEN", "UP"):
-                            ok = await mgr.raiseCover(target_id)
+                            ok = await mgr.raiseCover(target_id, require_explicit_result=command_ctx is not None)
                             if ok:
                                 patch = {"ID": str(target_id), "STA": "UP"}
                                 try:
@@ -444,7 +449,7 @@ def main():
                                     pass
                             return ok
                         if p in ("CLOSE", "DOWN"):
-                            ok = await mgr.lowerCover(target_id)
+                            ok = await mgr.lowerCover(target_id, require_explicit_result=command_ctx is not None)
                             if ok:
                                 patch = {"ID": str(target_id), "STA": "DOWN"}
                                 try:
@@ -455,7 +460,7 @@ def main():
                                     pass
                             return ok
                         if p in ("STOP", "HALT"):
-                            ok = await mgr.stopCover(target_id)
+                            ok = await mgr.stopCover(target_id, require_explicit_result=command_ctx is not None)
                             if ok:
                                 patch = {"ID": str(target_id), "STA": "STOP"}
                                 try:

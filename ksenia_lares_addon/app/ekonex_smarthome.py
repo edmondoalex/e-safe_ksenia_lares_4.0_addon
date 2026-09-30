@@ -52,6 +52,13 @@ class CommandContext:
     payload: str
 
 
+def configure_mqtt_availability(mqtt_client, mqtt_prefix: str) -> str:
+    """Configure a retained offline Last Will and return the availability topic."""
+    topic = f"{str(mqtt_prefix).strip().strip('/')}/status"
+    mqtt_client.will_set(topic, payload="offline", qos=1, retain=True)
+    return topic
+
+
 def _norm_id(value) -> str:
     try:
         return str(int(str(value).strip()))
@@ -100,7 +107,17 @@ def set_export_entry(data: dict, native_type: str, native_id, value: dict) -> di
 
 
 class EkonexSmartHomeBridge:
-    def __init__(self, mqtt_client, mqtt_prefix, load_config, save_config, snapshot, logger=None, now=None):
+    def __init__(
+        self,
+        mqtt_client,
+        mqtt_prefix,
+        load_config,
+        save_config,
+        snapshot,
+        logger=None,
+        now=None,
+        command_timeout=20.0,
+    ):
         self.mqtt = mqtt_client
         self.mqtt_prefix = str(mqtt_prefix).strip().strip("/")
         self.load_config = load_config
@@ -108,6 +125,7 @@ class EkonexSmartHomeBridge:
         self.snapshot = snapshot
         self.logger = logger
         self.now = now or time.time
+        self.command_timeout = max(0.01, float(command_timeout))
         self._lock = threading.Lock()
         self._command_topics = set()
         self._topic_capabilities = {}
@@ -297,7 +315,13 @@ class EkonexSmartHomeBridge:
                 return "preset", None
         return None, "invalid_payload"
 
-    def publish_result(self, ctx: CommandContext, status: str, error: str | None = None):
+    def publish_result(
+        self,
+        ctx: CommandContext,
+        status: str,
+        error: str | None = None,
+        confirmation_source: str | None = None,
+    ):
         body = {
             "schema_version": SCHEMA_VERSION,
             "command_id": ctx.command_id,
@@ -307,6 +331,8 @@ class EkonexSmartHomeBridge:
         }
         if error:
             body["error"] = str(error)
+        if confirmation_source:
+            body["confirmation_source"] = str(confirmation_source)
         self._publish_json(f"{CONTRACT_PREFIX}/command_result/{ctx.command_id}", body, False)
 
     def track_future(self, future, ctx: CommandContext | None):
@@ -314,14 +340,38 @@ class EkonexSmartHomeBridge:
             return future
         self.publish_result(ctx, "accepted")
 
+        completion_lock = threading.Lock()
+        completion = {"done": False}
+
+        def _finish(status, error=None, confirmation_source=None):
+            with completion_lock:
+                if completion["done"]:
+                    return False
+                completion["done"] = True
+            self.publish_result(ctx, status, error, confirmation_source)
+            return True
+
+        timer = threading.Timer(
+            self.command_timeout,
+            lambda: _finish("timeout", "command_timeout"),
+        )
+        timer.daemon = True
+        timer.start()
+
         def _done(done):
             try:
                 ok = bool(done.result())
-                self.publish_result(ctx, "confirmed" if ok else "failed", None if ok else "command_failed")
+                _finish(
+                    "confirmed" if ok else "failed",
+                    None if ok else "native_command_rejected",
+                    "native_response" if ok else None,
+                )
             except TimeoutError:
-                self.publish_result(ctx, "timeout", "command_timeout")
+                _finish("timeout", "command_timeout")
             except Exception as exc:
-                self.publish_result(ctx, "failed", type(exc).__name__)
+                _finish("failed", type(exc).__name__)
+            finally:
+                timer.cancel()
 
         future.add_done_callback(_done)
         return future

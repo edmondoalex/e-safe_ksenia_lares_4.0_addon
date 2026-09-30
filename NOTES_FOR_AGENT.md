@@ -2,6 +2,29 @@
 
 Questo file serve a riprendere velocemente il contesto quando si riapre VS Code / una nuova sessione.
 
+## 2026-09-30 - Correzioni revisione CHANGE-2026-009
+- Aggiunta UI `Export Smart Home` per whitelist, classe e capability; aggiunti Last Will MQTT retained e timeout correlato reale senza doppia conclusione.
+- `confirmed` richiede una risposta nativa affidabile: per output/cover correlati è obbligatorio `RESULT=OK`; termostati e scenari mantengono gli esiti nativi specifici.
+- Estesi test UI/persistenza, availability, timeout/late completion, conferma nativa e compatibilità legacy.
+
+File toccati:
+- ksenia_lares_addon/app/ekonex_smarthome.py
+- ksenia_lares_addon/app/smart_home_ui.py
+- ksenia_lares_addon/app/main.py
+- ksenia_lares_addon/app/debug_server.py
+- ksenia_lares_addon/app/websocketmanager.py
+- ksenia_lares_addon/tests/test_ekonex_smarthome.py
+- ksenia_lares_addon/tests/__init__.py
+- ksenia_lares_addon/docs/EKONEX_SMART_HOME_MQTT.md
+- ksenia_lares_addon/docs/ekonex-smarthome-v1.schema.json
+- ksenia_lares_addon/README.md
+- ksenia_lares_addon/config.yaml
+- NOTES_FOR_AGENT.md
+- EKONEX_PLATFORM_SYNC.md
+
+Versione (`config.yaml`):
+- incrementata a `5.2.106` per le correzioni obbligatorie della revisione coordinatore sul commit `3ed1112`.
+
 ## 2026-09-30 - CHANGE-2026-009 Ekonex Smart Home
 - Aggiunti catalogo/manifest MQTT Ekonex generati esclusivamente dalla whitelist esplicita in `ui_tags.json`, con ID persistenti e separazione hard-fail dai domini sicurezza.
 - Aggiunti envelope comando correlati e risultati `accepted/confirmed/failed/timeout/unavailable` sugli stessi topic legacy per output, cover, scenari e termostati.

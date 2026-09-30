@@ -30,6 +30,34 @@ from wscall import (
     clearCmd,
 )
 
+
+def native_command_result_ok(message: dict, command_data: dict | None) -> bool:
+    """Return true only for an acceptable native CMD_USR_RES acknowledgement."""
+    payload = message.get("PAYLOAD") if isinstance(message, dict) else None
+    data = payload.get("HomeAssistant") if isinstance(payload, dict) else None
+    if not isinstance(data, dict) and isinstance(payload, dict):
+        data = next((value for value in payload.values() if isinstance(value, dict)), {})
+    result = None
+    if isinstance(payload, dict) and "RESULT" in payload:
+        result = payload.get("RESULT")
+    elif isinstance(data, dict) and "RESULT" in data:
+        result = data.get("RESULT")
+    elif isinstance(payload, dict):
+        result = next(
+            (value.get("RESULT") for value in payload.values() if isinstance(value, dict) and "RESULT" in value),
+            None,
+        )
+    if result is not None:
+        return str(result).strip().upper() == "OK"
+    command = command_data.get("command") if isinstance(command_data, dict) else None
+    security_command = command == "SCENARIO" or (
+        isinstance(command, dict) and command.get("type") in ("PARTITION", "BYPASS")
+    )
+    require_explicit = bool(
+        isinstance(command_data, dict) and command_data.get("require_explicit_result")
+    )
+    return not (security_command or require_explicit)
+
 ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
 ssl_context.verify_mode = ssl.CERT_NONE
 ssl_context.options |= 0x4
@@ -1154,43 +1182,7 @@ class WebSocketManager:
             command_id = str(message.get("ID") or "")
             command_data = self._pending_commands.get(command_id)
 
-            def _extract_result() -> str | None:
-                try:
-                    pay = message.get("PAYLOAD")
-                    if isinstance(pay, dict):
-                        # Some panels include RESULT at the root of PAYLOAD.
-                        if "RESULT" in pay:
-                            return str(pay.get("RESULT"))
-                        # Most include RESULT inside the receiver object (often HomeAssistant).
-                        if isinstance(data, dict) and "RESULT" in data:
-                            return str(data.get("RESULT"))
-                        # Last resort: scan nested dicts.
-                        for v in pay.values():
-                            if isinstance(v, dict) and "RESULT" in v:
-                                return str(v.get("RESULT"))
-                except Exception:
-                    return None
-                return None
-
-            def _is_security_cmd(cmd_data: dict | None) -> bool:
-                try:
-                    if not isinstance(cmd_data, dict):
-                        return False
-                    cmd = cmd_data.get("command")
-                    if cmd == "SCENARIO":
-                        return True
-                    if isinstance(cmd, dict) and cmd.get("type") in ("PARTITION", "BYPASS"):
-                        return True
-                except Exception:
-                    return False
-                return False
-
-            result_raw = _extract_result()
-            if result_raw is None:
-                # If RESULT is missing, be conservative for security commands to avoid "OK" fakes.
-                result_ok = False if _is_security_cmd(command_data) else True
-            else:
-                result_ok = str(result_raw).strip().upper() == "OK"
+            result_ok = native_command_result_ok(message, command_data)
 
             if command_data:
                 try:
@@ -1744,7 +1736,13 @@ class WebSocketManager:
         await self.send_command(2, 50)
     """
 
-    async def send_command(self, output_id, command, pin: str | None = None):
+    async def send_command(
+        self,
+        output_id,
+        command,
+        pin: str | None = None,
+        require_explicit_result: bool = False,
+    ):
         future = asyncio.Future()
         if isinstance(command, (int, float)):
             try:
@@ -1756,6 +1754,7 @@ class WebSocketManager:
             "command": command.upper() if isinstance(command, str) else command,
             "future": future,
             "command_id": 0,
+            "require_explicit_result": bool(require_explicit_result),
         }
         if pin not in (None, ""):
             command_data["pin"] = str(pin)
@@ -1894,12 +1893,12 @@ class WebSocketManager:
         bool: True if the output was turned on successfully, False otherwise
     """
 
-    async def turnOnOutput(self, output_id, brightness=None):
+    async def turnOnOutput(self, output_id, brightness=None, require_explicit_result=False):
         try:
             if brightness:
-                success = await self.send_command(output_id, brightness)
+                success = await self.send_command(output_id, brightness, require_explicit_result=require_explicit_result)
             else:
-                success = await self.send_command(output_id, "ON")
+                success = await self.send_command(output_id, "ON", require_explicit_result=require_explicit_result)
             if not success:
                 self._logger.warning(f"Failed to turn on output {output_id}.")
                 return False
@@ -1918,7 +1917,7 @@ class WebSocketManager:
         bool: True if the output was turned off successfully, False otherwise
     """
 
-    async def turnOffOutput(self, output_id):
+    async def turnOffOutput(self, output_id, require_explicit_result=False):
         try:
             output_id = int(output_id)
             cat = None
@@ -1933,10 +1932,10 @@ class WebSocketManager:
                 cat = None
 
             # Some LIGHT outputs respond better to level=0 than OFF.
-            success = await self.send_command(output_id, "OFF")
+            success = await self.send_command(output_id, "OFF", require_explicit_result=require_explicit_result)
             if not success and cat == "LIGHT":
                 self._logger.warning("OFF failed for LIGHT %s, retry with level 0", output_id)
-                success = await self.send_command(output_id, "0")
+                success = await self.send_command(output_id, "0", require_explicit_result=require_explicit_result)
 
             if not success:
                 self._logger.warning(f"Failed to turn off output {output_id}.")
@@ -1956,9 +1955,9 @@ class WebSocketManager:
         bool: True if the cover was raised successfully, False otherwise
     """
 
-    async def raiseCover(self, roll_id):
+    async def raiseCover(self, roll_id, require_explicit_result=False):
         try:
-            success = await self.send_command(roll_id, "UP")
+            success = await self.send_command(roll_id, "UP", require_explicit_result=require_explicit_result)
             if not success:
                 self._logger.warning(f"Failed to raise cover {roll_id}.")
                 return False
@@ -1977,9 +1976,9 @@ class WebSocketManager:
         bool: True if the cover was lowered successfully, False otherwise
     """
 
-    async def lowerCover(self, roll_id):
+    async def lowerCover(self, roll_id, require_explicit_result=False):
         try:
-            success = await self.send_command(roll_id, "DOWN")
+            success = await self.send_command(roll_id, "DOWN", require_explicit_result=require_explicit_result)
             if not success:
                 self._logger.warning(f"Failed to lower cover {roll_id}.")
                 return False
@@ -1998,9 +1997,9 @@ class WebSocketManager:
         bool: True if the cover was stopped successfully, False otherwise
     """
 
-    async def stopCover(self, roll_id):
+    async def stopCover(self, roll_id, require_explicit_result=False):
         try:
-            success = await self.send_command(roll_id, "ALT")
+            success = await self.send_command(roll_id, "ALT", require_explicit_result=require_explicit_result)
             if not success:
                 self._logger.warning(f"Failed to stop cover {roll_id}.")
                 return False
@@ -2020,9 +2019,9 @@ class WebSocketManager:
         bool: True if the cover position was set successfully, False otherwise
     """
 
-    async def setCoverPosition(self, roll_id, position):
+    async def setCoverPosition(self, roll_id, position, require_explicit_result=False):
         try:
-            success = await self.send_command(roll_id, str(position))
+            success = await self.send_command(roll_id, str(position), require_explicit_result=require_explicit_result)
             if not success:
                 self._logger.warning(f"Failed to set cover position for {roll_id}.")
                 return False
