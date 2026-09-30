@@ -107,6 +107,12 @@ Per vedere cosa arriva:
 - Discovery (config retained):
   - `mosquitto_sub -h core-mosquitto -p 1883 -v -t "homeassistant/#" | grep e_safe`
 
+## Ekonex Smart Home (CHANGE-2026-009)
+
+La versione 5.2.105 aggiunge un contratto MQTT additivo per e-Control Hub senza cambiare i topic operativi o MQTT Discovery esistenti. Manifest e catalogo sono pubblicati retained sotto `ekonex/v1/integrations/ksenia`; solo gli oggetti abilitati esplicitamente con `smart_home.enabled` in `ui_tags.json` vengono esportati. Partizioni, bypass, account, panel/reset e SIA-IP sono sempre esclusi.
+
+Schema, esempi di whitelist/catalogo/envelope e regole ACL sono descritti in [`docs/EKONEX_SMART_HOME_MQTT.md`](docs/EKONEX_SMART_HOME_MQTT.md).
+
 ## Entità E-Manager  (MQTT Discovery)
 L’add-on pubblica discovery con `unique_id` stabile e `default_entity_id` per avere entità “cercabili” (es. `binary_sensor.e_safe_zone_74`).
 

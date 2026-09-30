@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ekonex.local/schemas/ksenia-smarthome-v1.json",
+  "title": "Ekonex Ksenia Smart Home MQTT payloads",
+  "oneOf": [
+    { "$ref": "#/$defs/manifest" },
+    { "$ref": "#/$defs/catalog" },
+    { "$ref": "#/$defs/command" },
+    { "$ref": "#/$defs/commandResult" }
+  ],
+  "$defs": {
+    "manifest": {
+      "type": "object",
+      "required": ["schema_version", "integration_id", "display_name", "availability_topic", "mqtt_prefix", "capabilities", "catalog_topic", "command_result_topic_template"],
+      "properties": {
+        "schema_version": { "const": "1.0" },
+        "integration_id": { "const": "ksenia" },
+        "display_name": { "type": "string" },
+        "availability_topic": { "type": "string", "minLength": 1 },
+        "mqtt_prefix": { "type": "string", "minLength": 1 },
+        "capabilities": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "catalog_topic": { "const": "ekonex/v1/integrations/ksenia/devices" },
+        "command_result_topic_template": { "const": "ekonex/v1/integrations/ksenia/command_result/{command_id}" }
+      }
+    },
+    "device": {
+      "type": "object",
+      "required": ["device_id", "native_type", "native_id", "name", "class", "capabilities", "state_topic", "command_topic", "payload_format", "read_only", "enabled", "source"],
+      "properties": {
+        "device_id": { "type": "string", "pattern": "^ksn_[0-9a-f]{32}$" },
+        "native_type": { "enum": ["outputs", "scenarios", "domus", "thermostats"] },
+        "native_id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "class": { "type": "string" },
+        "capabilities": { "type": "array", "items": { "type": "string" }, "minItems": 1, "uniqueItems": true },
+        "state_topic": { "type": "string", "minLength": 1 },
+        "command_topic": { "type": ["string", "null"] },
+        "command_topics": { "type": "object", "additionalProperties": { "type": "string" } },
+        "payload_format": { "type": "string" },
+        "read_only": { "type": "boolean" },
+        "enabled": { "const": true },
+        "source": { "const": "ksenia" }
+      }
+    },
+    "catalog": {
+      "type": "object",
+      "required": ["schema_version", "devices"],
+      "properties": {
+        "schema_version": { "const": "1.0" },
+        "devices": { "type": "array", "items": { "$ref": "#/$defs/device" } }
+      }
+    },
+    "command": {
+      "type": "object",
+      "required": ["command_id", "correlation_id", "payload"],
+      "properties": {
+        "command_id": { "type": "string", "minLength": 1 },
+        "correlation_id": { "type": "string", "minLength": 1 },
+        "payload": {}
+      }
+    },
+    "commandResult": {
+      "type": "object",
+      "required": ["schema_version", "command_id", "correlation_id", "status", "timestamp"],
+      "properties": {
+        "schema_version": { "const": "1.0" },
+        "command_id": { "type": "string", "minLength": 1 },
+        "correlation_id": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["accepted", "confirmed", "failed", "timeout", "unavailable"] },
+        "timestamp": { "type": "integer", "minimum": 0 },
+        "error": { "type": "string" }
+      }
+    }
+  }
+}

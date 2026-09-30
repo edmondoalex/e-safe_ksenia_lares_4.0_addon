@@ -20,6 +20,7 @@ from debug_server import LaresState, start_debug_server, set_command_handler
 from crc import addCRC
 from wscall import readData, readProgrammedData, ws_login, writeCfgTyped
 from siaip import SiaIpReceiver
+from ekonex_smarthome import EkonexSmartHomeBridge, set_export_entry
 
 
 def _load_addon_options():
@@ -201,6 +202,9 @@ def main():
         try:
             # Segnala disponibilità per discovery (usato anche dagli script/scenari).
             mqttc.publish(f"{mqtt_prefix}/status", "online", retain=True)
+            bridge = ekonex_ref.get("bridge")
+            if bridge is not None:
+                bridge.publish_contract()
         except Exception:
             pass
 
@@ -225,6 +229,7 @@ def main():
             logger.info(f"[MQTT] publish mid={mid} rc={reason_code}")
 
     manager_ref = {"manager": None, "loop": None}
+    ekonex_ref = {"bridge": None}
 
     def _handle_mqtt_cmd_output(client, userdata, msg):
         try:
@@ -248,9 +253,20 @@ def main():
                     logger.info("[MQTT] cmd received: topic=%s payload=%s", topic, _fmt_payload_for_log(payload_raw))
                 except Exception:
                     pass
+            command_ctx = None
+            bridge = ekonex_ref.get("bridge")
+            if bridge is not None:
+                command_ctx, payload_raw, contract_error = bridge.prepare_command(topic, payload_raw)
+                if contract_error:
+                    if command_ctx is not None:
+                        bridge.publish_result(command_ctx, "failed", contract_error)
+                    return
+
             loop = manager_ref.get("loop")
             mgr = manager_ref.get("manager")
             if not loop or not mgr:
+                if command_ctx is not None and bridge is not None:
+                    bridge.publish_result(command_ctx, "unavailable", "ksenia_unavailable")
                 return
 
             if domain == "output":
@@ -368,7 +384,9 @@ def main():
                                 pass
                         return ok
 
-                asyncio.run_coroutine_threadsafe(_coro_out(), loop)
+                future = asyncio.run_coroutine_threadsafe(_coro_out(), loop)
+                if bridge is not None:
+                    bridge.track_future(future, command_ctx)
                 return
 
             if domain == "cover":
@@ -451,7 +469,9 @@ def main():
                         return False
                     return False
 
-                asyncio.run_coroutine_threadsafe(_coro_cover(), loop)
+                future = asyncio.run_coroutine_threadsafe(_coro_cover(), loop)
+                if bridge is not None:
+                    bridge.track_future(future, command_ctx)
                 return
 
             if domain == "scenario":
@@ -462,7 +482,9 @@ def main():
                         return await mgr.executeScenario(target_id)
                     except Exception:
                         return False
-                asyncio.run_coroutine_threadsafe(_coro_scen(), loop)
+                future = asyncio.run_coroutine_threadsafe(_coro_scen(), loop)
+                if bridge is not None:
+                    bridge.track_future(future, command_ctx)
                 return
 
             if domain == "partition":
@@ -829,7 +851,9 @@ def main():
                         pass
                     return False
 
-                asyncio.run_coroutine_threadsafe(_coro_therm(), loop)
+                future = asyncio.run_coroutine_threadsafe(_coro_therm(), loop)
+                if bridge is not None:
+                    bridge.track_future(future, command_ctx)
                 return
 
             if domain == "scheduler":
@@ -3256,6 +3280,16 @@ def main():
         if (not saved) and last_exc is not None:
             logger.error(f"Impossibile salvare ui_tags: {last_exc}")
 
+    ekonex_bridge = EkonexSmartHomeBridge(
+        mqtt_client=mqttc,
+        mqtt_prefix=mqtt_prefix,
+        load_config=_load_ui_tags_file,
+        save_config=_save_ui_tags_file,
+        snapshot=state.snapshot,
+        logger=logger,
+    )
+    ekonex_ref["bridge"] = ekonex_bridge
+
     def _domus_thermostat_overrides_from_data(data):
         out = {}
         if not isinstance(data, dict):
@@ -3585,6 +3619,12 @@ def main():
                         publish("gsm", gsm)
         except Exception as exc:
             logger.error(f"Errore pubblicando stato (reconnect): {exc}")
+
+        try:
+            count = ekonex_bridge.publish_contract()
+            logger.info("Ekonex Smart Home catalog republished after reconnect: devices=%s", count)
+        except Exception as exc:
+            logger.error("Ekonex Smart Home contract publish failed after reconnect: %s", exc)
 
     manager.set_on_reconnect(_after_reconnect)
 
@@ -4193,7 +4233,7 @@ def main():
                 except Exception:
                     return {"ok": False, "error": "invalid id"}
                 target_type = str(value.get("target_type") or "").strip().lower()
-                if target_type not in ("outputs", "scenarios"):
+                if target_type not in ("outputs", "scenarios", "domus", "thermostats"):
                     return {"ok": False, "error": "invalid target_type"}
                 tag = str(value.get("tag") or "").strip()
                 visible = _coerce_bool(value.get("visible", True), True)
@@ -4204,7 +4244,9 @@ def main():
                         target_map = {}
                         data[target_type] = target_map
                     key = str(entity_id_int)
-                    entry = {}
+                    entry = target_map.get(key)
+                    if not isinstance(entry, dict):
+                        entry = {}
                     if tag:
                         entry["tag"] = tag
                     if not visible:
@@ -4213,7 +4255,17 @@ def main():
                         target_map[key] = entry
                     else:
                         target_map.pop(key, None)
+                    if "smart_home" in value:
+                        try:
+                            smart_home = set_export_entry(data, target_type, key, value.get("smart_home"))
+                            entry = data[target_type][key]
+                        except ValueError as exc:
+                            return {"ok": False, "error": str(exc)}
                     _save_ui_tags_file(data)
+                try:
+                    ekonex_bridge.publish_contract()
+                except Exception as exc:
+                    logger.error("Ekonex Smart Home contract publish failed: %s", exc)
                 return {"ok": True, "id": entity_id_int, "type": target_type, "entry": entry}
 
             if entity_type == "tag_styles":
@@ -5104,6 +5156,11 @@ def main():
             logger.error("Thermostat selection sync failed on startup: %s", exc)
         try:
             publish_discovery(state.snapshot())
+            try:
+                count = ekonex_bridge.publish_contract()
+                logger.info("Ekonex Smart Home catalog published: devices=%s", count)
+            except Exception as exc:
+                logger.error("Ekonex Smart Home contract publish failed: %s", exc)
             try:
                 _seed_partition_states(state.snapshot())
             except Exception:
